@@ -54,16 +54,6 @@ cp conf.py.sample conf.py
 
 DEF_PATH_BROWSER = '/Applications/Chromium.app/Contents/MacOS/Chromium’
 
-需要准备几个账号
-
-Yescaptcha 验证码(图形验证码)
-
-# [https://yescaptcha.com/i/Af32Me](https://yescaptcha.com/i/Af32Me)
-
-充 1u 能用好久
-
-Capmonster 验证码(点击进行真人验证)
-
 智普大模型，用来自动回复，新用户注册，白嫖资源包，有3个月的有效期
 
 通过我的邀请链接注册即可获得 2000万Tokens 大礼包，期待和你一起在BigModel上体验最新顶尖模型能力；链接：[https://www.bigmodel.cn/invite?icode=qauKhTeA%2BAzmE%2Ba3pjZTEHHEaazDlIZGj9HxftzTbt4%3D](https://www.bigmodel.cn/invite?icode=qauKhTeA%2BAzmE%2Ba3pjZTEHHEaazDlIZGj9HxftzTbt4%3D)
@@ -80,7 +70,7 @@ DEF_CAPMONSTER_KEY = 'your_key'
 # GLM API Key
 DEF_LLM_ZHIPUAI = 'set_your_secretkey'
 # 用哪个模型，如果赠送的资源包指定了模型，在这里设置
-DEF_MODEL_ZHIPUAI = 'glm-4-plus'
+DEF_MODEL_ZHIPUAI = 'glm-7'
 
 # 设置浏览器路径
 DEF_PATH_BROWSER = '/Applications/Chromium.app/Contents/MacOS/Chromium'
@@ -94,8 +84,6 @@ DEF_PATH_BROWSER = '/Applications/Chromium.app/Contents/MacOS/Chromium'
 
 在”我的资源包”，适用场景，如果是适用所有按 tokens 计费，就是通用的；如果是指定了适用于 xx 模型，就在配置里设置对应的模型。
 
-例如：我的这个资源包，适用于 glm-4.1v-thinking-flashx 模型的推理
-
 ## 三、运行
 
 ```bash
@@ -104,4 +92,7 @@ cd bn-square/
 source venv/bin/activate
 # 启动
 python bn_square.py
+
+# 发长文如果需要上传封面图，指定 --upload_image 参数，会暂停，手动上传图片后，在命令行敲回车，继续
+python bn_square.py --upload_image
 ```

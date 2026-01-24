@@ -1,0 +1,91 @@
+"""
+Config File
+"""
+import logging
+
+# 本地启动端口
+# 查看端口是否被占用 netstat -ant|grep 9318
+DEF_LOCAL_PORT = 9318
+
+# 是否使用无痕模式
+DEF_INCOGNITO = False
+
+# 是否使用无头浏览器模式
+DEF_USE_HEADLESS = True
+DEF_USE_HEADLESS = False
+
+# 调试模式
+# DEF_DEBUG = True
+DEF_DEBUG = False
+
+# 浏览器路径，置空时取 Chrome 的默认路径
+DEF_PATH_BROWSER = ''
+# DEF_PATH_BROWSER = '/Applications/Chromium.app/Contents/MacOS/Chromium'
+
+# DEF_PATH_USER_DATA = '/Users/{MAC_NAME}/Library/Application Support/Google/Chrome' # noqa
+DEF_PATH_USER_DATA = 'chrome_profile'
+
+DEF_NUM_TRY = 3
+
+# 每个账号每天最大重试次数
+NUM_MAX_TRY_PER_DAY = 5
+
+# 设置时间的时区 (0 for UTC, 8 for Asia/Shanghai)
+TZ_OFFSET = 8
+# 清空浏览器目录
+DEL_PROFILE_DIR = False
+
+FILENAME_LOG = 'bn_square_run.log'
+
+############################################################
+# Chrome 插件所在的目录
+DEF_OKX_EXTENSION_PATH = 'extensions/okx'
+EXTENSION_ID_OKX = 'mcohilncbfahbmgdjkbpemcciiolgcge'
+
+# https://yescaptcha.com/i/Af32Me
+DEF_CAPTCHA_KEY = 'set_your_secretkey'
+# Chrome 插件所在的目录
+DEF_CAPTCHA_EXTENSION_PATH = 'extensions/YesCaptcha'
+EXTENSION_ID_YESCAPTCHA = 'jiofmdifioeejeilfkpegipdjiopiekl'
+
+DEF_CAPMONSTER_EXTENSION_PATH = 'extensions/CapMonster'
+EXTENSION_ID_CAPMONSTER = 'pabjfbciaedomjjfelfafejkppknjleh'
+DEF_CAPMONSTER_KEY = 'set_your_secretkey'
+############################################################
+
+# GLM API Key
+# zhipu xtx key
+DEF_LLM_ZHIPUAI = 'set_your_secretkey'
+DEF_MODEL_ZHIPUAI = 'glm-4.7'
+# GLM API 端点
+DEF_GLM_BASE_URL = 'https://open.bigmodel.cn/api/paas/v4'
+############################################################
+
+# 遇到异常发钉钉消息，如果没有，置空，则不发钉钉消息
+DEF_DING_TOKEN = ''  # noqa
+############################################################
+DEF_CLASH_API_PORT = 9097
+DEF_CLASH_API_SECRETKEY = 'set_your_secretkey'
+DEF_HEADER_ACCOUNT = ''
+DEF_PATH_DATA_STATUS = 'datas/'
+
+############################################################
+# 配置日志
+s_format = '%(asctime)s %(levelname)s %(message)s'
+logging.basicConfig(
+    filename=FILENAME_LOG, level=logging.INFO,
+    format=s_format,
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+logger = logging.getLogger(__name__)
+############################################################
+# Project
+DEF_DIC_PROJECT = {
+    'xpl': {
+        'url': 'https://www.binance.com/zh-CN/square/creatorpad/xpl',
+        'name': 'Plasma',
+        'at': ['@Plasma'],
+        'tag': ['#Plasma'],
+        'token': ['$XPL'],
+    },
+}
