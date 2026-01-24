@@ -1113,8 +1113,8 @@ class BnSquare():
         if not os.path.exists(file_path):
             return 0
 
-        today = datetime.now().astimezone()
-        today_str = today.strftime('%Y-%m-%d')
+        # 使用 TZ_OFFSET 获取今天的日期字符串
+        today_str = format_ts(time.time(), style=1, tz_offset=TZ_OFFSET)
         count = 0
 
         try:
@@ -1133,8 +1133,13 @@ class BnSquare():
             s_ts, s_op_type, s_proj_line, _ = parts
             if s_op_type == s_post_type and s_proj_line == s_proj:
                 try:
+                    # 解析时间戳字符串
                     post_ts = datetime.strptime(s_ts, '%Y-%m-%dT%H:%M:%S%z')
-                    post_date_str = post_ts.strftime('%Y-%m-%d')
+                    # 转换为时间戳（秒）
+                    post_ts_timestamp = post_ts.timestamp()
+                    # 使用 TZ_OFFSET 转换为日期字符串进行比较
+                    post_date_str = format_ts(
+                        post_ts_timestamp, style=1, tz_offset=TZ_OFFSET)
                     if post_date_str == today_str:
                         count += 1
                 except Exception:  # noqa
