@@ -24,6 +24,8 @@ from conf import DEF_DING_TOKEN
 from conf import DEF_PATH_DATA_STATUS
 
 from conf import DEF_DIC_PROJECT
+from conf import DEF_MAX_NUM_SHORT_POST
+from conf import DEF_MAX_NUM_LONG_POST
 
 from conf import TZ_OFFSET
 from conf import DEL_PROFILE_DIR
@@ -923,6 +925,31 @@ class BnSquare():
 
         return s_text
 
+    def is_img_uploaded(self):
+        tab = self.browser.latest_tab
+
+        n_max_wait = 1800
+        i = 0
+
+        self.logit(
+            None, f'Wait for image to be uploaded, max wait: {n_max_wait} seconds ...')  # noqa
+
+        while i < n_max_wait:
+            i += 1
+            # 发布设置区域
+            ele_blk = tab.ele('@@tag()=div@@class=css-460ogu', timeout=2)
+            if not isinstance(ele_blk, NoneElement):
+                ele_btn = ele_blk.ele(
+                    '@@tag()=span@@class=rc-upload', timeout=2)
+                if not isinstance(ele_btn, NoneElement):
+                    tab.wait(1)
+                else:
+                    self.logit(
+                        None, f'Image is uploaded, waited {i} seconds ...')
+                    tab.wait(10)
+                    return True
+        return False
+
     def long_input(self, lst_text, s_title=None):
         tab = self.browser.latest_tab
         ele_btn = tab.ele('@@tag()=div@@class=css-l3k73g', timeout=2)
@@ -943,7 +970,9 @@ class BnSquare():
             s_msg = 'Please upload the image manually ...'
             self.logit(None, s_msg)
             ding_msg(s_msg, DEF_DING_TOKEN, msgtype='text')
-            input(s_msg)
+            # input(s_msg)
+            if self.is_img_uploaded() is False:
+                return False
 
         # publish
         ele_btn = tab.ele('@@tag()=button@@class:css-1uzbnpg', timeout=2)
@@ -1010,6 +1039,12 @@ class BnSquare():
         return False
 
     def publish_post(self, min_len=100, max_len=500):
+        # open BnSquare url
+        tab = self.browser.latest_tab
+        tab.get(self.args.url)
+        tab.wait(3)
+        # tab.set.window.max()
+
         s_text = self.gene_new_post_text_by_llm(
             min_len=min_len, max_len=max_len)
 
@@ -1063,6 +1098,50 @@ class BnSquare():
                     return None
         return None
 
+    def get_today_post_count(self, file_path, s_proj, s_post_type):
+        """
+        统计当天已发送的指定类型推文数量
+
+        参数:
+            file_path: 状态文件路径
+            s_proj: 项目名称
+            s_post_type: 推文类型 ('post_short' 或 'post_long')
+
+        返回:
+            int: 当天已发送的数量
+        """
+        if not os.path.exists(file_path):
+            return 0
+
+        today = datetime.now().astimezone()
+        today_str = today.strftime('%Y-%m-%d')
+        count = 0
+
+        try:
+            with open(file_path, 'r') as fp:
+                lines = fp.readlines()
+        except Exception:  # noqa
+            return 0
+
+        for line in lines:
+            line = line.strip()
+            if not line or line.startswith('update'):
+                continue
+            parts = line.split(',', 3)
+            if len(parts) < 4:
+                continue
+            s_ts, s_op_type, s_proj_line, _ = parts
+            if s_op_type == s_post_type and s_proj_line == s_proj:
+                try:
+                    post_ts = datetime.strptime(s_ts, '%Y-%m-%dT%H:%M:%S%z')
+                    post_date_str = post_ts.strftime('%Y-%m-%d')
+                    if post_date_str == today_str:
+                        count += 1
+                except Exception:  # noqa
+                    continue
+
+        return count
+
     def is_time_ready(self, s_post_type, s_proj, n_sleep):
         last_ts = self.get_last_post_ts(self.file_status, s_proj, s_post_type)
         if last_ts is not None:
@@ -1075,27 +1154,59 @@ class BnSquare():
                 return False
         return True
 
+    def is_count_ready(self, s_post_type, s_proj):
+        """
+        检查当天发送数量是否未超过限制
+
+        参数:
+            s_post_type: 推文类型 ('post_short' 或 'post_long')
+            s_proj: 项目名称
+
+        返回:
+            bool: True 表示可以发送，False 表示已达到限制
+        """
+        count = self.get_today_post_count(
+            self.file_status, s_proj, s_post_type)
+
+        if s_post_type == 'post_short':
+            max_count = DEF_MAX_NUM_SHORT_POST
+        elif s_post_type == 'post_long':
+            max_count = DEF_MAX_NUM_LONG_POST
+        else:
+            return True
+
+        if count >= max_count:
+            self.logit(
+                'square_process',
+                f'skip {s_post_type} for {s_proj}, '
+                f'today count ({count}) >= max ({max_count})'
+            )
+            return False
+
+        self.logit(
+            'square_process',
+            f'{s_post_type} for {s_proj}, '
+            f'today count ({count}) < max ({max_count})'
+        )
+        return True
+
     def square_process(self):
-
-        # open BnSquare url
-        tab = self.browser.latest_tab
-        tab.get(self.args.url)
-        tab.wait(3)
-        # tab.set.window.max()
-        # pdb.set_trace()
-
         for s_proj, d_proj in DEF_DIC_PROJECT.items():
             self.logit('square_process', f'proj: {s_proj}')
             self.proj = s_proj
 
+            # 检查短推文
             n_sleep = random.randint(1800, 3600)
-            b_is_ready = self.is_time_ready('post_short', s_proj, n_sleep)
-            if b_is_ready:
+            b_is_time_ready = self.is_time_ready('post_short', s_proj, n_sleep)
+            b_is_count_ready = self.is_count_ready('post_short', s_proj)
+            if b_is_time_ready and b_is_count_ready:
                 self.publish_post(min_len=150, max_len=400)
 
+            # 检查长推文
             n_sleep = random.randint(3600, 7200)
-            b_is_ready = self.is_time_ready('post_long', s_proj, n_sleep)
-            if b_is_ready:
+            b_is_time_ready = self.is_time_ready('post_long', s_proj, n_sleep)
+            b_is_count_ready = self.is_count_ready('post_long', s_proj)
+            if b_is_time_ready and b_is_count_ready:
                 self.publish_post(min_len=600, max_len=800)
 
         return True
@@ -1142,6 +1253,9 @@ def main(args):
     s_profile = args.profile
     inst_square = BnSquare()
     inst_square.set_args(args)
+
+    if args.debug:
+        pdb.set_trace()
 
     # 如果出现异常(与页面的连接已断开)，增加重试
     max_try_except = 3
@@ -1223,6 +1337,10 @@ if __name__ == '__main__':
     parser.add_argument(
         '--upload_image', required=False, action='store_true',
         help='Whether to upload an image when posting'
+    )
+    parser.add_argument(
+        '--debug', required=False, action='store_true',
+        help='Debug mode'
     )
 
     args = parser.parse_args()
