@@ -215,7 +215,7 @@ class BnSquare():
                     ele_btn.click(by_js=True)
                     self.status_append(
                         s_op_type='post_short',
-                        s_proj='xpl',
+                        s_proj=self.proj,
                         s_msg='post short text successfully',
                     )
                     tab.wait(2)
@@ -556,10 +556,18 @@ class BnSquare():
             min_len: 最小长度（字符数），默认 100
             max_len: 最大长度（字符数），默认 500
         """
+        if not self.proj:
+            self.logit(None, 'Error: self.proj is not set')
+            return False
+
         d_proj = DEF_DIC_PROJECT.get(self.proj, {})
-        s_at = d_proj.get('at', '@plasma')
-        s_tag = d_proj.get('tag', '#plasma')
-        s_token = d_proj.get('token', '$XPL')
+        if not d_proj:
+            self.logit(None, f'Error: project {self.proj} not found in config')
+            return False
+
+        s_at = d_proj.get('at', [])
+        s_tag = d_proj.get('tag', [])
+        s_token = d_proj.get('token', [])
         lst_at = s_at if isinstance(s_at, list) else [s_at]
         lst_tag = s_tag if isinstance(s_tag, list) else [s_tag]
         lst_token = s_token if isinstance(s_token, list) else [s_token]
@@ -714,10 +722,11 @@ class BnSquare():
     def normalize_post_tags(self, s_text):
         """
         规范化推文中的标签：
-        1. 如果包含 XPL 但前面没有 $，则替换为 $XPL
-        2. 如果 $XPL 前后没有空格，则增加空格
-        3. 如果不包含 XPL，则在最后增加 ' $XPL'
-        4. 对 @plasma 和 #plasma 做类似处理
+        根据当前项目配置，规范化推文中的标签（token、at、tag）
+        1. 如果包含 token 名称但前面没有 $，则替换为 $token
+        2. 如果 $token 前后没有空格，则增加空格
+        3. 如果不包含 $token，则在最后增加 ' $token'
+        4. 对 @ 和 # 标签做类似处理
 
         参数:
             s_text: 原始文本
@@ -728,55 +737,132 @@ class BnSquare():
         if not s_text:
             return s_text
 
-        # 处理 $XPL
-        # 1. 如果包含 XPL 但前面没有 $，则替换为 $XPL（不区分大小写）
-        # 替换所有独立的 XPL（不在 $ 后面）
-        s_text = re.sub(r'(?i)(?<!\$)\bXPL\b', r'$XPL', s_text)
+        # 获取当前项目的配置
+        if not self.proj:
+            self.logit(None, 'Error: self.proj is not set')
+            return s_text
 
-        # 2. 如果 $XPL 前后没有空格，则增加空格
-        # 前面没有空格且不是开头，且前面不是 $，则添加空格
-        s_text = re.sub(r'(?<!\s)(?<!\$)(?<!^)\$XPL', r' $XPL', s_text)
-        # 后面没有空格且不是结尾，则添加空格
-        s_text = re.sub(r'\$XPL(?!\s)(?!$)', r'$XPL ', s_text)
+        d_proj = DEF_DIC_PROJECT.get(self.proj, {})
+        if not d_proj:
+            self.logit(None, f'Error: project {self.proj} not found in config')
+            return s_text
 
-        # 3. 如果不包含 $XPL，则在最后增加 ' $XPL'
-        if not re.search(r'\$XPL', s_text, re.IGNORECASE):
-            s_text = s_text.rstrip() + ' $XPL'
+        lst_token = d_proj.get('token', [])
+        lst_at = d_proj.get('at', [])
+        lst_tag = d_proj.get('tag', [])
 
-        # 处理 @plasma（不区分大小写）
-        # 先统一将 @Plasma、@PLASMA 等统一为 @plasma（小写）
-        s_text = re.sub(r'(?i)@plasma', r'@plasma', s_text)
+        # 确保是列表格式
+        if not isinstance(lst_token, list):
+            lst_token = [lst_token]
+        if not isinstance(lst_at, list):
+            lst_at = [lst_at]
+        if not isinstance(lst_tag, list):
+            lst_tag = [lst_tag]
 
-        # 如果文本中还没有 @plasma，查找独立的 plasma 词并替换
-        # 替换所有独立的 plasma（不在 @、#、$ 后面），不区分大小写
-        # 但只替换第一个，避免替换太多
-        if not re.search(r'@plasma', s_text, re.IGNORECASE):
+        # 处理 token 标签（如 $XPL, $VANRY）
+        for token in lst_token:
+            if not token.startswith('$'):
+                continue
+            token_name = token[1:]  # 去掉 $ 符号，获取 token 名称
+            token_pattern = re.escape(token)
+
+            # 1. 如果包含 token 名称但前面没有 $，则替换为 $token（不区分大小写）
             s_text = re.sub(
-                r'(?i)(?<!@)(?<!#)(?<!\$)\bplasma\b',
-                r'@plasma',
-                s_text,
-                count=1
+                rf'(?i)(?<!\$)\b{re.escape(token_name)}\b',
+                token,
+                s_text
             )
 
-        # 2. 如果 @plasma 前后没有空格，则增加空格
-        s_text = re.sub(r'(?i)(?<!\s)(?<!@)@plasma', r' @plasma', s_text)
-        s_text = re.sub(r'(?i)@plasma(?!\s)(?!$)', r'@plasma ', s_text)
+            # 2. 如果 $token 前后没有空格，则增加空格
+            # 前面没有空格且不是开头，且前面不是 $，则添加空格
+            s_text = re.sub(
+                rf'(?<!\s)(?<!\$)(?<!^){token_pattern}',
+                f' {token}',
+                s_text
+            )
+            # 后面没有空格且不是结尾，则添加空格
+            s_text = re.sub(
+                rf'{token_pattern}(?!\s)(?!$)',
+                f'{token} ',
+                s_text
+            )
 
-        # 3. 如果不包含 @plasma，则在最后增加 ' @plasma'
-        if not re.search(r'@plasma', s_text, re.IGNORECASE):
-            s_text = s_text.rstrip() + ' @plasma'
+            # 3. 如果不包含 $token，则在最后增加 ' $token'
+            if not re.search(token_pattern, s_text, re.IGNORECASE):
+                s_text = s_text.rstrip() + f' {token}'
 
-        # 处理 #plasma（不区分大小写）
-        # 先统一将 #Plasma、#PLASMA 等统一为 #plasma（小写）
-        s_text = re.sub(r'(?i)#plasma', r'#plasma', s_text)
+        # 处理 @ 标签（如 @Plasma, @vanar）
+        for at_tag in lst_at:
+            if not at_tag.startswith('@'):
+                continue
+            at_name = at_tag[1:]  # 去掉 @ 符号，获取名称（如 Plasma, vanar）
+            at_pattern = re.escape(at_tag)
+            at_name_pattern = re.escape(at_name)
 
-        # 2. 如果 #plasma 前后没有空格，则增加空格
-        s_text = re.sub(r'(?i)(?<!\s)(?<!#)#plasma', r' #plasma', s_text)
-        s_text = re.sub(r'(?i)#plasma(?!\s)(?!$)', r'#plasma ', s_text)
+            # 先统一大小写（使用配置中的格式）
+            s_text = re.sub(
+                rf'(?i)@{at_name_pattern}',
+                at_tag,
+                s_text
+            )
 
-        # 3. 如果不包含 #plasma，则在最后增加 ' #plasma'
-        if not re.search(r'#plasma', s_text, re.IGNORECASE):
-            s_text = s_text.rstrip() + ' #plasma'
+            # 如果文本中还没有 @tag，查找独立的名称词并替换
+            # 替换所有独立的名称（不在 @、#、$ 后面），不区分大小写
+            # 但只替换第一个，避免替换太多
+            if not re.search(at_pattern, s_text, re.IGNORECASE):
+                s_text = re.sub(
+                    rf'(?i)(?<!@)(?<!#)(?<!\$)\b{at_name_pattern}\b',
+                    at_tag,
+                    s_text,
+                    count=1
+                )
+
+            # 2. 如果 @tag 前后没有空格，则增加空格
+            s_text = re.sub(
+                rf'(?i)(?<!\s)(?<!@){at_pattern}',
+                f' {at_tag}',
+                s_text
+            )
+            s_text = re.sub(
+                rf'(?i){at_pattern}(?!\s)(?!$)',
+                f'{at_tag} ',
+                s_text
+            )
+
+            # 3. 如果不包含 @tag，则在最后增加 ' @tag'
+            if not re.search(at_pattern, s_text, re.IGNORECASE):
+                s_text = s_text.rstrip() + f' {at_tag}'
+
+        # 处理 # 标签（如 #Plasma, #Vanar）
+        for tag in lst_tag:
+            if not tag.startswith('#'):
+                continue
+            tag_name = tag[1:]  # 去掉 # 符号，获取名称（如 Plasma, Vanar）
+            tag_pattern = re.escape(tag)
+            tag_name_pattern = re.escape(tag_name)
+
+            # 先统一大小写（使用配置中的格式）
+            s_text = re.sub(
+                rf'(?i)#{tag_name_pattern}',
+                tag,
+                s_text
+            )
+
+            # 2. 如果 #tag 前后没有空格，则增加空格
+            s_text = re.sub(
+                rf'(?i)(?<!\s)(?<!#){tag_pattern}',
+                f' {tag}',
+                s_text
+            )
+            s_text = re.sub(
+                rf'(?i){tag_pattern}(?!\s)(?!$)',
+                f'{tag} ',
+                s_text
+            )
+
+            # 3. 如果不包含 #tag，则在最后增加 ' #tag'
+            if not re.search(tag_pattern, s_text, re.IGNORECASE):
+                s_text = s_text.rstrip() + f' {tag}'
 
         # 清理多余的空格，但保留换行符和标签
         # 按行处理，清理每行内的多余空格
@@ -866,7 +952,7 @@ class BnSquare():
                 ele_btn.click()
                 self.status_append(
                     s_op_type='post_long',
-                    s_proj='xpl',
+                    s_proj=self.proj,
                     s_msg='post long text successfully',
                 )
                 tab.wait(3)
@@ -892,7 +978,18 @@ class BnSquare():
 
     def post_long_text(self):
         tab = self.browser.latest_tab
-        s_url = 'https://www.binance.com/zh-CN/square/creatorpad/xpl'
+        # 从项目配置中获取 URL
+        if not self.proj:
+            self.logit(None, 'Error: self.proj is not set')
+            return False
+        d_proj = DEF_DIC_PROJECT.get(self.proj, {})
+        if not d_proj:
+            self.logit(None, f'Error: project {self.proj} not found in config')
+            return False
+        s_url = d_proj.get('url')
+        if not s_url:
+            self.logit(None, f'Error: URL not found for project {self.proj}')
+            return False
         tab.get(s_url)
         tab.wait(3)
         tab.wait.doc_loaded()
@@ -985,6 +1082,7 @@ class BnSquare():
         tab.get(self.args.url)
         tab.wait(3)
         # tab.set.window.max()
+        # pdb.set_trace()
 
         for s_proj, d_proj in DEF_DIC_PROJECT.items():
             self.logit('square_process', f'proj: {s_proj}')
