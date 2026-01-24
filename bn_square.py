@@ -4,20 +4,15 @@ import sys  # noqa
 import argparse
 import random
 import time
-import copy
 import pdb  # noqa
 import shutil
-import math
 import re  # noqa
 from datetime import datetime  # noqa
 
 from DrissionPage._elements.none_element import NoneElement
 
 from fun_utils import ding_msg
-from fun_utils import load_file
-from fun_utils import save2file
 from fun_utils import format_ts
-from fun_utils import get_index_from_header
 from fun_glm import gene_by_llm
 
 from fun_dp import DpUtils
@@ -25,7 +20,6 @@ from fun_dp import DpUtils
 from conf import DEF_USE_HEADLESS
 from conf import DEF_DEBUG
 from conf import DEF_PATH_USER_DATA
-from conf import DEF_NUM_TRY
 from conf import DEF_DING_TOKEN
 from conf import DEF_PATH_DATA_STATUS
 
@@ -212,7 +206,8 @@ class BnSquare():
                 continue
 
             ele_btn = tab.ele(
-                '@@tag()=button@@data-bn-type=button@@class:css-4dec1t', timeout=2)
+                '@@tag()=button@@data-bn-type=button@@class:css-4dec1t',
+                timeout=2)
             if not isinstance(ele_btn, NoneElement):
                 self.logit(None, 'Try to click post button ...')
                 tab.actions.move_to(ele_btn)
@@ -371,7 +366,7 @@ class BnSquare():
             errors.append(f'长度不足({len(s_reply)}<{n_min_len}) [回答太短了，需要增加内容]')
         if len(s_reply) > n_max_len:
             # errors.append(f'长度超限({len(s_reply)}>{n_max_len})')
-            errors.append(f'长度超限({len(s_reply)}>{n_max_len}) [回答太长了，字数减少一半]')
+            errors.append(f'长度超限({len(s_reply)}>{n_max_len}) [回答太长了，字数减少一点]')
 
         # 检查特殊字符出现次数
         special_chars = ['@', '#', '$']
@@ -394,21 +389,6 @@ class BnSquare():
         # 检查是否出现 <|begin_of_box|> 和 <|end_of_box|> 标签
         if '<|begin_of_box|>' in s_reply or '<|end_of_box|>' in s_reply:
             errors.append('出现 <|begin_of_box|> 和 <|end_of_box|> 标签')
-
-        # 检查非中文字符(英文、数字、符号，符号只考虑 @ # $ 三个)与中文之间是否有空格
-        # 查找中文字符后紧跟非中文字符的情况(英文、数字、@ # $ 符号)
-        pattern1 = r'[\u4e00-\u9fff][a-zA-Z0-9@#$]'
-        # 查找非中文字符后紧跟中文字符的情况
-        pattern2 = r'[a-zA-Z0-9@#$][\u4e00-\u9fff]'
-
-        match1 = re.search(pattern1, s_reply)
-        match2 = re.search(pattern2, s_reply)
-
-        if match1 or match2:
-            problem_text = match1.group() if match1 else match2.group()
-
-            # 不提示中英文之间缺少空格
-            # errors.append(f'中英文之间缺少空格，问题片段: "... {problem_text} ..."')
 
         # 如果有错误，返回 False 和拼接的错误信息
         if errors:
@@ -510,7 +490,7 @@ class BnSquare():
             if len(s_title) < min_len or len(s_title) > max_len:
                 self.logit(
                     None,
-                    f'Title length ({len(s_title)}) not in range [{min_len}, {max_len}], '
+                    f'Title length ({len(s_title)}) not in range [{min_len}, {max_len}], '  # noqa
                     f'retrying...'
                 )
                 # 如果长度不符合要求，尝试重新生成
@@ -541,13 +521,13 @@ class BnSquare():
                         s_title = s_title.replace('<|begin_of_box|>', '')
                         s_title = s_title.replace('<|end_of_box|>', '')
                         s_title = s_title.strip()
-                except Exception as e:
+                except Exception as e:  # noqa
                     self.logit(None, f'Error retrying title generation: {e}')
 
             # 最终验证
             if not s_title or len(s_title) < min_len:
                 self.logit(
-                    None, f'Title generation failed, length: {len(s_title) if s_title else 0}')
+                    None, f'Title generation failed, length: {len(s_title) if s_title else 0}')  # noqa
                 return None
 
             # 如果标题太长，截断
@@ -709,7 +689,7 @@ class BnSquare():
                         "# 【重要】\n"
                         "请根据错误原因修改推文，确保符合所有要求。\n"
                         f"如果内容长度不符合要求，请调整到 {min_len}-{max_len} 字符之间。\n"
-                        f"如果缺少必要的标签提及，请确保内容与 {s_at_opt}、{s_token_opt}、{s_tag_opt} 相关。\n"
+                        f"如果缺少必要的标签提及，请确保内容与 {s_at_opt}、{s_token_opt}、{s_tag_opt} 相关。\n"  # noqa
                         f"请保持「{selected_style}」的写作风格不变。\n"
                     )
                     try:
@@ -724,139 +704,12 @@ class BnSquare():
                 else:
                     if not s_text:
                         self.logit(
-                            None, 'All attempts failed, post is empty, skip ...')
+                            None, 'All attempts failed, post is empty, skip ...')  # noqa
                         return False
                     self.logit(
-                        None, 'All attempts failed, ignore the check, use the post ...')
+                        None, 'All attempts failed, ignore the check, use the post ...')  # noqa
 
         return s_text
-
-    def gene_title_by_llm(self, s_text, min_len=10, max_len=30):
-        """
-        通过大模型生成标题
-
-        参数:
-            s_text: 输入的文本内容
-            min_len: 标题最小长度（字符数），默认 10
-            max_len: 标题最大长度（字符数），默认 30
-
-        返回:
-            str: 生成的标题，如果生成失败返回 None
-        """
-        if not s_text or not s_text.strip():
-            self.logit(None, 's_text is empty, cannot generate title')
-            return None
-
-        s_rules = (
-            "请用中文输出\n"
-            f"标题长度不少于 {min_len} 且不超过 {max_len}（英文、数字、符号按字符数计算，中文汉字按汉字数计算）\n"
-            "标题要简洁明了，能够概括文本的主要内容\n"
-            "标题要有吸引力，能够引起读者的兴趣\n"
-            "标题不要包含标签符号（如 @、#、$）\n"
-            "标题不要出现换行符，必须是一行文本\n"
-            "标题不要出现 <|begin_of_box|> 和 <|end_of_box|> 标签\n"
-            "标题要符合中文表达习惯，语言自然流畅\n"
-        )
-
-        s_prompt = (
-            "# 【功能】\n"
-            "根据给定的文本内容，生成一个简洁、吸引人的标题\n"
-            "\n"
-            "# 【要求】\n"
-            f"{s_rules}\n"
-            "\n"
-            "# 【文本内容】\n"
-            f"{s_text}\n"
-            "\n"
-            "# 【重要提示】\n"
-            "- 标题要准确概括文本的核心内容\n"
-            "- 标题要简洁有力，避免冗长\n"
-            "- 标题要有吸引力，能够引起读者的点击欲望\n"
-            "- 直接输出标题内容，不要添加任何前缀或说明\n"
-        )
-
-        self.logit(None, f'Generating title for text (length: {len(s_text)})')
-
-        try:
-            s_title = gene_by_llm(s_prompt)
-            if not s_title:
-                self.logit(None, 's_title from llm is empty')
-                return None
-
-            # 清理标题
-            s_title = s_title.strip()
-            # 去掉可能的标签符号
-            s_title = re.sub(r'[@#$]', '', s_title)
-            # 去掉换行符
-            s_title = re.sub(r'\n+', '', s_title)
-            # 去掉多余的空格
-            s_title = re.sub(r' +', ' ', s_title).strip()
-            # 去掉可能的标签符号（如 <|begin_of_box|> 和 <|end_of_box|>）
-            s_title = s_title.replace('<|begin_of_box|>', '')
-            s_title = s_title.replace('<|end_of_box|>', '')
-            s_title = s_title.strip()
-
-            # 验证标题长度
-            if len(s_title) < min_len or len(s_title) > max_len:
-                self.logit(
-                    None,
-                    f'Title length ({len(s_title)}) not in range [{min_len}, {max_len}], '
-                    f'retrying...'
-                )
-                # 如果长度不符合要求，尝试重新生成
-                s_prompt_retry = (
-                    "# 【要求】\n"
-                    f"{s_rules}\n"
-                    "\n"
-                    "# 【文本内容】\n"
-                    f"{s_text}\n"
-                    "\n"
-                    "# 【之前生成的标题有问题】\n"
-                    f"之前生成的标题：{s_title}\n"
-                    f"标题长度：{len(s_title)} 字符\n"
-                    f"要求长度：{min_len}-{max_len} 字符\n"
-                    "\n"
-                    "# 【重要】\n"
-                    "请重新生成一个符合长度要求的标题。\n"
-                    "标题要简洁明了，能够概括文本的主要内容。\n"
-                    "直接输出标题内容，不要添加任何前缀或说明。\n"
-                )
-                try:
-                    s_title = gene_by_llm(s_prompt_retry)
-                    if s_title:
-                        s_title = s_title.strip()
-                        s_title = re.sub(r'[@#$]', '', s_title)
-                        s_title = re.sub(r'\n+', '', s_title)
-                        s_title = re.sub(r' +', ' ', s_title).strip()
-                        s_title = s_title.replace('<|begin_of_box|>', '')
-                        s_title = s_title.replace('<|end_of_box|>', '')
-                        s_title = s_title.strip()
-                except Exception as e:
-                    self.logit(None, f'Error retrying title generation: {e}')
-
-            # 最终验证
-            if not s_title or len(s_title) < min_len:
-                self.logit(
-                    None, f'Title generation failed, length: {len(s_title) if s_title else 0}')
-                return None
-
-            # 如果标题太长，截断
-            if len(s_title) > max_len:
-                s_title = s_title[:max_len].rstrip()
-                # 如果截断后以不完整的词结尾，尝试找到最后一个完整的词
-                if s_title and s_title[-1] not in '，。！？、；：':
-                    # 尝试找到最后一个空格或标点符号
-                    last_space = s_title.rfind(' ')
-                    if last_space > min_len:
-                        s_title = s_title[:last_space].rstrip()
-
-            self.logit(
-                None, f'Generated title: {s_title} (length: {len(s_title)})')
-            return s_title
-
-        except Exception as e:
-            self.logit(None, f'Error calling gene_by_llm for title: {e}')
-            return None
 
     def normalize_post_tags(self, s_text):
         """
@@ -1003,6 +856,7 @@ class BnSquare():
         if self.args.upload_image:
             s_msg = 'Please upload the image manually ...'
             self.logit(None, s_msg)
+            ding_msg(s_msg, DEF_DING_TOKEN, msgtype='text')
             input(s_msg)
 
         # publish
@@ -1021,6 +875,21 @@ class BnSquare():
             return False
         return False
 
+    def post_article(self):
+        tab = self.browser.latest_tab
+        s_url = 'https://www.binance.com/zh-CN/square/'
+        tab.get(s_url)
+        tab.wait(3)
+        tab.wait.doc_loaded()
+
+        ele_btn = tab.ele(
+            '@@tag()=div@@class:center icon-box cursor-pointer', timeout=2)
+        if not isinstance(ele_btn, NoneElement):
+            ele_btn.click()
+            tab.wait(3)
+            return True
+        return False
+
     def post_long_text(self):
         tab = self.browser.latest_tab
         s_url = 'https://www.binance.com/zh-CN/square/creatorpad/xpl'
@@ -1029,11 +898,15 @@ class BnSquare():
         tab.wait.doc_loaded()
 
         ele_blk = tab.ele(
-            '@@tag()=div@@class:flex items-start justify-between@@text():在币安广场使用文章编辑器', timeout=2)
+            '@@tag()=div@@class:flex items-start justify-between@@text():在币安广场使用文章编辑器', timeout=2)  # noqa
         if not isinstance(ele_blk, NoneElement):
             ele_btn = ele_blk.ele(
                 '@@tag()=button@@class:bn-button', timeout=2)
             if not isinstance(ele_btn, NoneElement):
+                s_text = ele_btn.text
+                if s_text in ['已完成']:
+                    if self.post_article():
+                        return True
                 ele_btn.click()
                 tab.wait(3)
                 return True
@@ -1100,7 +973,7 @@ class BnSquare():
             if (now_ts - last_ts).total_seconds() < n_sleep:
                 self.logit(
                     'square_process',
-                    f'skip {s_post_type} for {s_proj}, last update within {n_sleep} seconds',
+                    f'skip {s_post_type} for {s_proj}, last update within {n_sleep} seconds',  # noqa
                 )
                 return False
         return True
@@ -1141,34 +1014,6 @@ class BnSquare():
         self.logit('square_run', 'Finished!')
 
         return True
-
-
-def send_msg(inst_square, lst_success):
-    if len(DEF_DING_TOKEN) > 0 and len(lst_success) > 0:
-        s_info = ''
-        s_profile = self.args.profile
-        for s_profile in lst_success:
-            lst_status = None
-            if s_profile in inst_square.dic_status:
-                lst_status = inst_square.dic_status[s_profile]
-
-            if lst_status is None:
-                lst_status = [s_profile, -1]
-
-            s_info += '- {},{}\n'.format(
-                s_profile,
-                lst_status[inst_square.IDX_STATUS],
-            )
-        d_cont = {
-            'title': 'Daily Check-In Finished! [okx_BnSquare]',
-            'text': (
-                'Daily Check-In [okx_BnSquare]\n'
-                '- account,time_next_claim\n'
-                '{}\n'
-                .format(s_info)
-            )
-        }
-        ding_msg(d_cont, DEF_DING_TOKEN, msgtype="markdown")
 
 
 def show_msg(args):
@@ -1228,8 +1073,6 @@ def main(args):
             logger.info('sleep {} seconds ...'.format(int(sleep_time)))
         time.sleep(sleep_time)
 
-    # send_msg(inst_square, lst_success)
-
 
 if __name__ == '__main__':
     """
@@ -1275,7 +1118,8 @@ if __name__ == '__main__':
         help='Disable headless mode'
     )
     parser.add_argument(
-        '--url', required=False, default='https://www.binance.com/zh-CN/square',
+        '--url', required=False,
+        default='https://www.binance.com/zh-CN/square',
         help='BnSquare url'
     )
     parser.add_argument(
@@ -1295,5 +1139,5 @@ if __name__ == '__main__':
 
 """
 # noqa
-python bn_square.py
+python bn_square.py --upload_image
 """

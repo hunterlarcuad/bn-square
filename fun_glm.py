@@ -7,10 +7,7 @@ API端点: https://open.bigmodel.cn/api/paas/v4
 Coding端点: https://open.bigmodel.cn/api/coding/paas/v4
 """
 import sys
-import csv
-import argparse
 import time
-import pdb
 import os
 
 from conf import DEF_LLM_ZHIPUAI
@@ -49,36 +46,6 @@ def get_glm_client():
     return client
 
 
-def test():
-    client = get_glm_client()
-    response = client.chat.asyncCompletions.create(
-        model="glm-4-plus",  # 请填写您要调用的模型名称
-        messages=[
-            {
-                "role": "user",
-                "content": "作为童话之王，请以始终保持一颗善良的心为主题，写一篇简短的童话故事。故事应能激发孩子们的学习兴趣和想象力，同时帮助他们更好地理解和接受故事中蕴含的道德和价值观。"
-            }
-        ],
-    )
-    print(response)
-
-
-def get_rsp_by_id(task_id):
-    client = get_glm_client()
-    # task_id = response.id
-    task_status = ''
-    get_cnt = 0
-
-    while task_status != 'SUCCESS' and task_status != 'FAILED' and get_cnt <= 40:
-        result_response = client.chat.asyncCompletions.retrieve_completion_result(
-            id=task_id)
-        print(result_response)
-        task_status = result_response.task_status
-
-        time.sleep(2)
-        get_cnt += 1
-
-
 def gene_by_llm_once_async(s_prompt, model=None):
     """
     异步API调用方式（作为备用方案）
@@ -105,8 +72,8 @@ def gene_by_llm_once_async(s_prompt, model=None):
         task_status = ''
         get_cnt = 0
 
-        while task_status != 'SUCCESS' and task_status != 'FAILED' and get_cnt <= 40:
-            result_response = client.chat.asyncCompletions.retrieve_completion_result(
+        while task_status != 'SUCCESS' and task_status != 'FAILED' and get_cnt <= 40:  # noqa
+            result_response = client.chat.asyncCompletions.retrieve_completion_result(  # noqa
                 id=task_id)
             task_status = result_response.task_status
 
@@ -188,11 +155,9 @@ def gene_by_llm(s_prompt, max_retry=3):
 if __name__ == "__main__":
     """
     """
-    s_in = "I don't know why my account can't like or post, and I haven't logged in for a while. Can you help lift the ban?"
+    s_in = "I don't know why my account can't like or post"
     s_out = gene_by_llm(s_in)
     print(s_out)
-    # test()
-    # get_rsp_by_id('73461743384968928-8844185384718838052')
 
     # main()
 
