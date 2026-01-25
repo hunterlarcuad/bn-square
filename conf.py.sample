@@ -89,3 +89,5 @@ DEF_DIC_PROJECT = {
         'token': ['$XPL'],
     },
 }
+DEF_MAX_NUM_SHORT_POST = 5
+DEF_MAX_NUM_LONG_POST = 3

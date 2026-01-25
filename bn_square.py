@@ -65,7 +65,95 @@ class BnSquare():
         ]
         self.DEF_HEADER_STATUS = ','.join(self.lst_header_status)
 
+        self.lst_header_interaction = [
+            'update',
+            'dataid',
+            'op_type',
+            'msg',
+        ]
+        self.DEF_HEADER_INTERACTION = ','.join(self.lst_header_interaction)
+
         self.proj = None
+
+        self.n_like = 0
+        self.n_reply = 0
+
+        self.interaction_sleep_start_ts = None
+        self.interaction_sleep_seconds = None
+
+    def update_interaction_count(self, op_type):
+        """
+        更新互动计数，当任意一个达到限制数量时，清零并sleep
+
+        参数:
+            op_type: 操作类型，'like' 或 'comment'
+        """
+        # 从命令行参数获取限制和sleep范围
+        limit = self.args.interaction_limit
+        sleep_min = self.args.interaction_sleep_min_sec
+        sleep_max = self.args.interaction_sleep_max_sec
+
+        if op_type == 'like':
+            self.n_like += 1
+            self.logit(
+                'update_interaction_count',
+                f'点赞计数: {self.n_like}/{limit}'
+            )
+        elif op_type == 'comment':
+            self.n_reply += 1
+            self.logit(
+                'update_interaction_count',
+                f'回复计数: {self.n_reply}/{limit}'
+            )
+
+        # 如果任意一个达到限制数量，记录 sleep 开始时间和持续时间
+        if self.n_like >= limit or self.n_reply >= limit:
+            sleep_minutes_min = sleep_min // 60
+            sleep_minutes_max = sleep_max // 60
+            self.logit(
+                'update_interaction_count',
+                f'达到限制（点赞: {self.n_like}, 回复: {self.n_reply}），'
+                f'清零并进入等待期 {sleep_minutes_min}-{sleep_minutes_max} 分钟'
+            )
+            self.n_like = 0
+            self.n_reply = 0
+            sleep_seconds = random.randint(sleep_min, sleep_max)
+            sleep_minutes = sleep_seconds // 60
+            # 记录 sleep 开始时间和持续时间
+            self.interaction_sleep_start_ts = datetime.now().astimezone()
+            self.interaction_sleep_seconds = sleep_seconds
+            self.logit(
+                'update_interaction_count',
+                f'进入等待期 {sleep_minutes} 分钟 ({sleep_seconds} 秒)，'
+                f'开始时间: {self.interaction_sleep_start_ts}'
+            )
+
+    def is_in_interaction_sleep_period(self):
+        """
+        检查是否还在互动 sleep 期间
+
+        返回:
+            bool: True 表示还在 sleep 期间，False 表示 sleep 已结束
+        """
+        if self.interaction_sleep_start_ts is None:
+            return False
+
+        now_ts = datetime.now().astimezone()
+        elapsed_seconds = (
+            now_ts - self.interaction_sleep_start_ts
+        ).total_seconds()
+
+        if elapsed_seconds < self.interaction_sleep_seconds:
+            return True
+
+        # sleep 时间已过，清除状态
+        self.logit(
+            'is_in_interaction_sleep_period',
+            f'等待期已结束，已等待 {int(elapsed_seconds)} 秒'
+        )
+        self.interaction_sleep_start_ts = None
+        self.interaction_sleep_seconds = None
+        return False
 
     def set_args(self, args):
         self.args = args
@@ -73,6 +161,9 @@ class BnSquare():
 
         self.file_status = (
             f'{DEF_PATH_DATA_STATUS}/bn_square/square_operation.csv'
+        )
+        self.file_interaction = (
+            f'{DEF_PATH_DATA_STATUS}/bn_square/square_interaction.csv'
         )
 
     def __del__(self):
@@ -119,6 +210,63 @@ class BnSquare():
             header=self.DEF_HEADER_STATUS
         )
         self.is_update = True
+
+    def interaction_append(self, s_dataid, s_op_type, s_msg):
+        """
+        写入互动记录到文件
+
+        参数:
+            s_dataid: 帖子 data-id
+            s_op_type: 操作类型（如 'like', 'comment'）
+            s_msg: 消息内容
+        """
+        if not s_dataid:
+            return
+        update_ts = time.time()
+        update_time = format_ts(update_ts, 2, TZ_OFFSET)
+        s_content = f'{update_time},{s_dataid},{s_op_type},{s_msg}'  # noqa
+        self.append2file(
+            file_ot=self.file_interaction,
+            s_content=s_content,
+            header=self.DEF_HEADER_INTERACTION
+        )
+        self.is_update = True
+
+    def is_interacted(self, s_dataid, s_op_type):
+        """
+        检查是否已经互动过
+
+        参数:
+            s_dataid: 帖子 data-id
+            s_op_type: 操作类型（如 'like', 'comment'）
+
+        返回:
+            bool: True 表示已经互动过，False 表示未互动
+        """
+        if not s_dataid:
+            return False
+
+        if not os.path.exists(self.file_interaction):
+            return False
+
+        try:
+            # 遍历文件查找匹配的 dataid 和 op_type
+            with open(self.file_interaction, 'r') as fp:
+                next(fp)  # 跳过表头
+                for line in fp:
+                    if len(line.strip()) == 0:
+                        continue
+                    fields = line.strip().split(',')
+                    if len(fields) >= 3:
+                        dataid = fields[1]
+                        op_type = fields[2]
+                        if dataid == s_dataid and op_type == s_op_type:
+                            return True
+        except Exception as e:
+            self.logit(None, f'Error checking interaction: {e}')
+            return False
+
+        return False
 
     def close(self):
         # 在有头浏览器模式 Debug 时，不退出浏览器，用于调试
@@ -193,7 +341,7 @@ class BnSquare():
         tab.wait(1)
         return True
 
-    def bn_post(self, lst_text):
+    def bn_post(self, lst_text, upload_image=False):
         max_try = 10
         for i in range(1, max_try+1):
             self.logit('bn_post', f'try_i={i}/{max_try}')
@@ -206,6 +354,14 @@ class BnSquare():
                 self.input_post_text(ele_btn, lst_text)
             else:
                 continue
+
+            if upload_image:
+                s_msg = 'Please upload the image manually ...'
+                self.logit(None, s_msg)
+                ding_msg(s_msg, DEF_DING_TOKEN, msgtype='text')
+                # input(s_msg)
+                if self.is_short_img_uploaded() is False:
+                    continue
 
             ele_btn = tab.ele(
                 '@@tag()=button@@data-bn-type=button@@class:css-4dec1t',
@@ -422,6 +578,100 @@ class BnSquare():
         s_reply = s_reply.strip()
 
         return s_reply
+
+    def gene_reply_by_llm(self, s_content, min_len=10, max_len=50):
+        """
+        通过大模型生成评论回复
+
+        参数:
+            s_content: 原帖内容
+            min_len: 回复最小长度（字符数），默认 5
+            max_len: 回复最大长度（字符数），默认 100
+
+        返回:
+            str: 生成的回复内容，如果生成失败返回默认回复
+        """
+        if not s_content or not s_content.strip():
+            self.logit(None, 's_content is empty, using default reply')
+            return '给老铁助力！'
+
+        s_rules = (
+            "请用中文输出\n"
+            f"回复长度不少于 {min_len} 且不超过 {max_len} 字符\n"
+            "回复要简洁有力，能够表达对原帖的支持或认同\n"
+            "回复要自然友好，符合币安广场的社区氛围\n"
+            "回复不要包含标签符号（如 @、#、$）\n"
+            "回复可以是鼓励性的话语，如'给老铁助力！'、'支持！'、'说得对！'等\n"
+            "回复要符合中文表达习惯，语言自然流畅\n"
+            "回复不要出现 <|begin_of_box|> 和 <|end_of_box|> 标签\n"
+        )
+
+        s_prompt = (
+            "# 【功能】\n"
+            "根据给定的原帖内容，生成一条简洁、友好的评论回复\n"
+            "\n"
+            "# 【要求】\n"
+            f"{s_rules}\n"
+            "\n"
+            "# 【原帖内容】\n"
+            f"{s_content[:500]}\n"  # 限制原帖长度，避免 prompt 过长
+            "\n"
+            "# 【重要提示】\n"
+            "- 回复要简洁有力，能够表达对原帖的支持\n"
+            "- 回复要自然友好，符合社区氛围\n"
+            "- 直接输出回复内容，不要添加任何前缀或说明\n"
+            "- 如果原帖内容较长，可以总结核心观点后给出回复\n"
+        )
+
+        self.logit(
+            None,
+            f'Generating reply for content (length: {len(s_content)})'
+        )
+
+        try:
+            s_reply = gene_by_llm(s_prompt)
+            if not s_reply:
+                self.logit(
+                    None,
+                    's_reply from llm is empty, using default reply'
+                )
+                return '给老铁助力！'
+
+            # 清理回复
+            s_reply = self.clean_reply(s_reply)
+
+            # 去掉可能的标签符号
+            s_reply = re.sub(r'[@#$]', '', s_reply)
+            # 去掉换行符（评论通常是单行）
+            s_reply = re.sub(r'\n+', ' ', s_reply)
+            # 去掉多余的空格
+            s_reply = re.sub(r' +', ' ', s_reply).strip()
+
+            # 验证回复长度
+            if len(s_reply) < min_len:
+                self.logit(
+                    None,
+                    f'Reply length ({len(s_reply)}) less than {min_len}, '
+                    f'using default reply'
+                )
+                return '给老铁助力！'
+
+            # 如果回复太长，截断
+            if len(s_reply) > max_len:
+                s_reply = s_reply[:max_len].rstrip()
+                # 如果截断后以不完整的词结尾，尝试找到最后一个完整的词
+                if s_reply and s_reply[-1] not in '，。！？、；：':
+                    last_space = s_reply.rfind(' ')
+                    if last_space > min_len:
+                        s_reply = s_reply[:last_space].rstrip()
+
+            self.logit(
+                None, f'Generated reply: {s_reply} (length: {len(s_reply)})')
+            return s_reply
+
+        except Exception as e:
+            self.logit(None, f'Error calling gene_by_llm for reply: {e}')
+            return '给老铁助力！'
 
     def gene_title_by_llm(self, s_text, min_len=10, max_len=30):
         """
@@ -950,7 +1200,33 @@ class BnSquare():
                     return True
         return False
 
-    def long_input(self, lst_text, s_title=None):
+    def is_short_img_uploaded(self):
+        tab = self.browser.latest_tab
+
+        n_max_wait = 1800
+        i = 0
+
+        self.logit(
+            None, f'Wait for image to be uploaded, max wait: {n_max_wait} seconds ...')  # noqa
+
+        while i < n_max_wait:
+            i += 1
+            # 发布设置区域
+            ele_blk = tab.ele(
+                '@@tag()=div@@class:short-editor-editor-wrapper', timeout=2)
+            if not isinstance(ele_blk, NoneElement):
+                ele_btn = ele_blk.ele(
+                    '@@tag()=img', timeout=2)
+                if isinstance(ele_btn, NoneElement):
+                    tab.wait(1)
+                else:
+                    self.logit(
+                        None, f'Image is uploaded, waited {i} seconds ...')
+                    tab.wait(10)
+                    return True
+        return False
+
+    def long_input(self, lst_text, s_title=None, upload_image=False):
         tab = self.browser.latest_tab
         ele_btn = tab.ele('@@tag()=div@@class=css-l3k73g', timeout=2)
         if not isinstance(ele_btn, NoneElement):
@@ -966,7 +1242,7 @@ class BnSquare():
         else:
             return False
 
-        if self.args.upload_image:
+        if upload_image:
             s_msg = 'Please upload the image manually ...'
             self.logit(None, s_msg)
             ding_msg(s_msg, DEF_DING_TOKEN, msgtype='text')
@@ -1056,12 +1332,16 @@ class BnSquare():
         lst_text = self.parse_post_text(s_text)
 
         if min_len > 500:
+            # 长文：使用 upload_image_long 参数
+            upload_image = self.args.upload_image_long
             self.post_long_text()
             s_title = self.gene_title_by_llm(s_text, min_len=10, max_len=30)
-            if self.long_input(lst_text, s_title) is False:
+            if self.long_input(lst_text, s_title, upload_image) is False:
                 return False
         else:
-            if self.bn_post(lst_text) is False:
+            # 短文：使用 upload_image_short 参数
+            upload_image = self.args.upload_image_short
+            if self.bn_post(lst_text, upload_image) is False:
                 return False
         return True
 
@@ -1074,7 +1354,19 @@ class BnSquare():
             return True
         return False
 
-    def get_last_post_ts(self, file_path, s_proj, s_post_type):
+    def get_last_post_ts(self, file_path, s_proj=None, s_post_type=None):
+        """
+        获取最后一条推文的时间戳
+
+        参数:
+            file_path: 状态文件路径
+            s_proj: 项目名称，如果为 None 则返回所有项目的最近推文时间
+            s_post_type: 推文类型（'post_short' 或 'post_long'），
+                        如果为 None 则返回所有类型的最近推文时间
+
+        返回:
+            datetime 对象或 None
+        """
         if not os.path.exists(file_path):
             return None
         try:
@@ -1083,6 +1375,7 @@ class BnSquare():
         except Exception:  # noqa
             return None
 
+        last_ts = None
         for line in reversed(lines):
             line = line.strip()
             if not line or line.startswith('update'):
@@ -1091,12 +1384,28 @@ class BnSquare():
             if len(parts) < 4:
                 continue
             s_ts, s_op_type, s_proj_line, _ = parts
-            if s_op_type == s_post_type and s_proj_line == s_proj:
-                try:
-                    return datetime.strptime(s_ts, '%Y-%m-%dT%H:%M:%S%z')
-                except Exception:  # noqa
-                    return None
-        return None
+
+            # 如果指定了项目名称，必须匹配
+            if s_proj is not None and s_proj_line != s_proj:
+                continue
+
+            # 如果指定了推文类型，必须匹配
+            if s_post_type is not None and s_op_type != s_post_type:
+                continue
+
+            # 解析时间戳
+            try:
+                ts = datetime.strptime(s_ts, '%Y-%m-%dT%H:%M:%S%z')
+                # 如果还没有找到时间戳，或者这个时间戳更新，则更新
+                if last_ts is None or ts > last_ts:
+                    last_ts = ts
+                    # 如果同时指定了项目和类型，找到第一个匹配的就返回
+                    if s_proj is not None and s_post_type is not None:
+                        return ts
+            except Exception:  # noqa
+                continue
+
+        return last_ts
 
     def get_today_post_count(self, file_path, s_proj, s_post_type):
         """
@@ -1153,7 +1462,7 @@ class BnSquare():
             now_ts = datetime.now().astimezone()
             if (now_ts - last_ts).total_seconds() < n_sleep:
                 self.logit(
-                    'square_process',
+                    'is_time_ready',
                     f'skip {s_post_type} for {s_proj}, last update within {n_sleep} seconds',  # noqa
                 )
                 return False
@@ -1182,23 +1491,59 @@ class BnSquare():
 
         if count >= max_count:
             self.logit(
-                'square_process',
+                'is_count_ready',
                 f'skip {s_post_type} for {s_proj}, '
                 f'today count ({count}) >= max ({max_count})'
             )
             return False
 
         self.logit(
-            'square_process',
+            'is_count_ready',
             f'{s_post_type} for {s_proj}, '
             f'today count ({count}) < max ({max_count})'
         )
         return True
 
-    def square_process(self):
+    def check_and_wait_if_post_interval_too_short(self):
+        """
+        检查所有项目最后一条推文发布时间，如果间隔太短则等待
+
+        返回:
+            bool: True 表示需要等待（已等待），False 表示不需要等待
+        """
+        n_sec_interval = random.randint(1200, 1800)
+        # 先检查所有项目最后一条推文发布的时间，如果小于 n_sec_interval，sleep
+        now_ts = datetime.now().astimezone()
+
+        # 获取所有项目、所有类型中最新的推文时间
+        global_last_post_ts = self.get_last_post_ts(
+            self.file_status, s_proj=None, s_post_type=None
+        )
+
+        # 如果距离上次推文时间不足 n_sec_interval，等待
+        if global_last_post_ts is not None:
+            elapsed_seconds = (now_ts - global_last_post_ts).total_seconds()
+            if elapsed_seconds < n_sec_interval:
+                sleep_time = n_sec_interval - elapsed_seconds
+                self.logit(
+                    'check_and_wait_if_post_interval_too_short',
+                    f'所有项目最后一条推文发布于 {global_last_post_ts}, '
+                    f'间隔 {int(elapsed_seconds)} 秒，'
+                    f'等待 {int(sleep_time)} 秒'
+                )
+                time.sleep(3)
+                return True
+
+        return False
+
+    def square_post(self):
         for s_proj, d_proj in DEF_DIC_PROJECT.items():
-            self.logit('square_process', f'proj: {s_proj}')
+            self.logit('square_post', f'proj: {s_proj}')
             self.proj = s_proj
+
+            # 检查推文间隔，如果需要等待则返回
+            if self.check_and_wait_if_post_interval_too_short():
+                continue
 
             # 检查短推文
             n_sleep = random.randint(1800, 3600)
@@ -1216,10 +1561,209 @@ class BnSquare():
 
         return True
 
+    def is_liked(self, ele_like):
+        ele_btn = ele_like.ele(
+            '@@tag()=path@@d', timeout=2)
+        if not isinstance(ele_btn, NoneElement):
+            s_path_d = ele_btn.attr('d')
+            if s_path_d.startswith('M12'):
+                # self.logit(None, 'Like Status: Not Liked')
+                return False
+            else:
+                # self.logit(None, 'Like Status: Liked')
+                return True
+        return False
+
+    def like_post(self, ele_footer_blk, s_dataid=None):
+        tab = self.browser.latest_tab
+        ele_like = ele_footer_blk.ele(
+            '@@tag()=div@@class:thumb-up-button card', timeout=2)
+        if not isinstance(ele_like, NoneElement):
+            # s_like = ele_like.text
+
+            b_is_liked = self.is_liked(ele_like)
+            if b_is_liked:
+                self.logit(None, 'Like Status: Liked')
+                # 如果已经点赞，检查是否已有记录，没有才写入（避免重复记录）
+                if s_dataid:
+                    if not self.is_interacted(s_dataid, 'like'):
+                        self.interaction_append(
+                            s_dataid, 'like', 'already_liked'
+                        )
+                return True
+            self.logit(None, 'Like Status: Not Liked')
+
+            ele_btn = ele_like.ele(
+                '@@tag()=div@@class:group-hover', timeout=2)
+            if not isinstance(ele_btn, NoneElement):
+                ele_btn.click(by_js=True)
+                max_wait_sec = 15
+                i = 0
+                while i < max_wait_sec:
+                    i += 1
+                    tab.wait(1)
+                    b_is_liked = self.is_liked(ele_like)
+                    if b_is_liked:
+                        self.logit(None, 'Click Like Button [SUCCESS]')
+                        # 写入互动记录
+                        if s_dataid:
+                            self.interaction_append(
+                                s_dataid, 'like', 'success'
+                            )
+                        # 更新点赞计数
+                        self.update_interaction_count('like')
+                        return True
+                return False
+        return False
+
+    # 取消勾选 评论并转发 复选框
+    def cancel_comment_and_forward(self, ele_blk):
+        ele_checkbox = ele_blk.ele(
+            '@@tag()=div@@role=checkbox@@aria-checked', timeout=2)
+        if not isinstance(ele_checkbox, NoneElement):
+            if ele_checkbox.attr('aria-checked') == 'true':
+                ele_checkbox.click(by_js=True)
+                return True
+        return False
+
+    def comment_post(self, ele_blk, ele_footer_blk, s_dataid, s_content):
+        tab = self.browser.latest_tab
+        ele_comment = ele_footer_blk.ele(
+            '@@tag()=div@@class:comments-icon', timeout=2)
+        if not isinstance(ele_comment, NoneElement):
+            ele_btn = ele_comment.ele(
+                '@@tag()=div@@class:group-hover', timeout=2)
+            if not isinstance(ele_btn, NoneElement):
+                ele_btn.click(by_js=True)
+                tab.wait(3)
+                ele_input = ele_blk.ele(
+                    '@@tag()=div@@class:feed-comment-input-textarea ',
+                    timeout=2)
+                if not isinstance(ele_input, NoneElement):
+                    s_reply = self.gene_reply_by_llm(s_content)
+                    lst_text = (
+                        [s_reply] if s_reply else ['给老铁助力！']
+                    )
+                    self.input_post_text(ele_input, lst_text)
+                    tab.wait(1)
+                    self.cancel_comment_and_forward(ele_blk)
+                    tab.wait(1)
+                    ele_btn = ele_blk.ele(
+                        '@@tag()=button@@data-bn-type=button'
+                        '@@class:feed-comment-input-submit-btn',
+                        timeout=2)
+                    if not isinstance(ele_btn, NoneElement):
+                        pdb.set_trace()
+                        ele_btn.click(by_js=True)
+                        tab.wait(2)
+
+                        # 关注并回复 弹窗
+                        ele_window = tab.ele(
+                            '@@tag()=div@@class:confirm-modal css',
+                            timeout=2)
+                        if not isinstance(ele_window, NoneElement):
+                            ele_btn = ele_window.ele(
+                                '@@tag()=button'
+                                '@@class:confirm-modal-confirm',
+                                timeout=2)
+                            if not isinstance(ele_btn, NoneElement):
+                                ele_btn.click(by_js=True)
+                                tab.wait(2)
+
+                        # 写入互动记录
+                        if s_dataid:
+                            self.interaction_append(
+                                s_dataid, 'comment', s_reply[:50]
+                            )
+                        # 更新回复计数
+                        self.update_interaction_count('comment')
+                        return True
+
+        return False
+
+    def process_recommend_post(self):
+        tab = self.browser.latest_tab
+        tab.get(self.args.url)
+        tab.wait.doc_loaded()
+        tab.wait(10)
+
+        tab = self.browser.latest_tab
+        ele_blks = tab.eles(
+            '@@tag()=div@@class:FeedBuzzBaseView_FeedBuzzBaseViewRootBox',
+            timeout=2)
+        n_posts = len(ele_blks)
+        self.logit(None, f'Found {n_posts} posts')
+        for ele_blk in ele_blks:
+            # 检查是否还在互动 sleep 期间
+            if self.is_in_interaction_sleep_period():
+                now_ts = datetime.now().astimezone()
+                remaining_seconds = (
+                    self.interaction_sleep_seconds -
+                    (now_ts - self.interaction_sleep_start_ts).total_seconds()
+                )
+                remaining_minutes = int(remaining_seconds // 60)
+                self.logit(
+                    None,
+                    f'在互动等待期内，剩余约 {remaining_minutes} 分钟，'
+                    f'结束处理'
+                )
+                return False
+
+            s_dataid = ''
+            s_content = ''
+
+            tab.actions.move_to(ele_blk)
+
+            ele_dataid = ele_blk.ele('@@tag()=div@@data-id', timeout=2)
+            if not isinstance(ele_dataid, NoneElement):
+                s_dataid = ele_dataid.attr('data-id')
+            ele_content = ele_blk.ele(
+                '@@tag()=div@@class:feed-content-text', timeout=2)
+            if not isinstance(ele_content, NoneElement):
+                s_content = ele_content.text
+                self.logit(None, f'Content: {s_content[:30]}')
+
+            if not s_dataid:
+                self.logit(None, 'dataid is empty, skip')
+                continue
+
+            # 检查是否已经评论过
+            if self.is_interacted(s_dataid, 'comment'):
+                self.logit(None, f'Already commented on {s_dataid}, skip')
+            else:
+                ele_footer_blk = ele_blk.ele(
+                    '@@tag()=div@@class:footer-function-grid', timeout=2)
+                if not isinstance(ele_footer_blk, NoneElement):
+                    if self.comment_post(
+                        ele_blk, ele_footer_blk, s_dataid, s_content
+                    ) is False:
+                        continue
+
+            # 检查是否已经点赞过
+            if self.is_interacted(s_dataid, 'like'):
+                self.logit(None, f'Already liked {s_dataid}, skip')
+            else:
+                ele_footer_blk = ele_blk.ele(
+                    '@@tag()=div@@class:footer-function-grid', timeout=2)
+                if not isinstance(ele_footer_blk, NoneElement):
+                    if self.like_post(ele_footer_blk, s_dataid) is False:
+                        continue
+                    tab.wait(3)
+
+        return False
+
     def square_run(self):
         self.browser = self.inst_dp.get_browser(self.args.profile)
 
-        self.square_process()
+        if args.debug:
+            tab = self.browser.latest_tab
+            tab.get(self.args.url)
+            tab.wait.doc_loaded()
+            tab.wait(3)
+            pdb.set_trace()
+
+        self.square_post()
+        self.process_recommend_post()
 
         if self.args.manual_exit:
             s_msg = 'Manual Exit. Press any key to exit! ⚠️'  # noqa
@@ -1279,7 +1823,7 @@ def main(args):
 
         except Exception as e:
             logger.info(f'[{args.profile}] An error occurred: {str(e)}')
-            inst_square.close()
+            # inst_square.close()
             if j < max_try_except:
                 time.sleep(5)
 
@@ -1340,8 +1884,24 @@ if __name__ == '__main__':
         help='BnSquare url'
     )
     parser.add_argument(
-        '--upload_image', required=False, action='store_true',
-        help='Whether to upload an image when posting'
+        '--upload_image_short', required=False, action='store_true',
+        help='Whether to upload an image when posting short text'
+    )
+    parser.add_argument(
+        '--upload_image_long', required=False, action='store_true',
+        help='Whether to upload an image when posting long text'
+    )
+    parser.add_argument(
+        '--interaction_limit', required=False, type=int, default=10,
+        help='Interaction limit count before sleep (default: 10)'
+    )
+    parser.add_argument(
+        '--interaction_sleep_min_sec', required=False, type=int, default=600,
+        help='Minimum sleep seconds after reaching interaction limit (default: 600, 10 minutes)'  # noqa
+    )
+    parser.add_argument(
+        '--interaction_sleep_max_sec', required=False, type=int, default=1200,
+        help='Maximum sleep seconds after reaching interaction limit (default: 1200, 20 minutes)'  # noqa
     )
     parser.add_argument(
         '--debug', required=False, action='store_true',
@@ -1360,5 +1920,5 @@ if __name__ == '__main__':
 
 """
 # noqa
-python bn_square.py --upload_image
+python bn_square.py --upload_image_short --upload_image_long
 """
