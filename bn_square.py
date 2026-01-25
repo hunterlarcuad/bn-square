@@ -356,7 +356,10 @@ class BnSquare():
                 continue
 
             if upload_image:
-                s_msg = 'Please upload the image manually ...'
+                s_msg = (
+                    f'[{self.args.profile}] [{self.proj}] [short_post]'
+                    f'Please upload the image manually ...'
+                )
                 self.logit(None, s_msg)
                 ding_msg(s_msg, DEF_DING_TOKEN, msgtype='text')
                 # input(s_msg)
@@ -1215,9 +1218,10 @@ class BnSquare():
             ele_blk = tab.ele(
                 '@@tag()=div@@class:short-editor-editor-wrapper', timeout=2)
             if not isinstance(ele_blk, NoneElement):
+                # 识别图片右上角的关闭按钮
                 ele_btn = ele_blk.ele(
-                    '@@tag()=img', timeout=2)
-                if isinstance(ele_btn, NoneElement):
+                    '@@tag()=div@@class:free remove-btn', timeout=2)
+                if not isinstance(ele_btn, NoneElement):
                     tab.wait(1)
                 else:
                     self.logit(
@@ -1243,7 +1247,10 @@ class BnSquare():
             return False
 
         if upload_image:
-            s_msg = 'Please upload the image manually ...'
+            s_msg = (
+                f'[{self.args.profile}] [{self.proj}] [long_post]'
+                f'Please upload the image manually ...'
+            )
             self.logit(None, s_msg)
             ding_msg(s_msg, DEF_DING_TOKEN, msgtype='text')
             # input(s_msg)
@@ -1680,11 +1687,73 @@ class BnSquare():
 
         return False
 
+    def is_interaction_limit_reached(self):
+        """
+        检查今日回复和点赞数量是否已达到上限
+
+        返回:
+            bool: 只有当所有设置了限制的项目都达到上限时返回 True，否则返回 False
+        """
+        daily_max_like = getattr(self.args, 'daily_max_like', 0)
+        daily_max_comment = getattr(self.args, 'daily_max_comment', 0)
+
+        # 如果两个参数都是 0（无限制），直接返回 False
+        if daily_max_like == 0 and daily_max_comment == 0:
+            return False
+
+        # 获取今日互动统计
+        interaction_stats = self.get_today_interaction_stats()
+
+        # 检查所有设置了限制的项目是否都达到上限
+        like_limit_reached = False
+        comment_limit_reached = False
+
+        # 检查点赞限制
+        if daily_max_like > 0:
+            if interaction_stats['like'] >= daily_max_like:
+                like_limit_reached = True
+                self.logit(
+                    None,
+                    f'今日点赞数量已达上限 '
+                    f'({interaction_stats["like"]}/{daily_max_like})'
+                )
+            else:
+                # 如果设置了限制但未达到，返回 False
+                return False
+        else:
+            # 如果未设置点赞限制，视为已满足条件
+            like_limit_reached = True
+
+        # 检查回复限制
+        if daily_max_comment > 0:
+            if interaction_stats['comment'] >= daily_max_comment:
+                comment_limit_reached = True
+                self.logit(
+                    None,
+                    f'今日回复数量已达上限 '
+                    f'({interaction_stats["comment"]}/{daily_max_comment})'
+                )
+            else:
+                # 如果设置了限制但未达到，返回 False
+                return False
+        else:
+            # 如果未设置回复限制，视为已满足条件
+            comment_limit_reached = True
+
+        # 只有当所有设置了限制的项目都达到上限时，才返回 True
+        if like_limit_reached and comment_limit_reached:
+            self.logit(
+                None,
+                '今日点赞和回复数量都已达上限，停止处理推荐帖子'
+            )
+            return True
+
+        return False
+
     def process_recommend_post(self):
-        tab = self.browser.latest_tab
-        tab.get(self.args.url)
-        tab.wait.doc_loaded()
-        tab.wait(10)
+        # 如果今日回复和点赞数量已达上限，则不处理
+        if self.is_interaction_limit_reached():
+            return False
 
         tab = self.browser.latest_tab
         ele_blks = tab.eles(
@@ -1730,36 +1799,217 @@ class BnSquare():
             if self.is_interacted(s_dataid, 'comment'):
                 self.logit(None, f'Already commented on {s_dataid}, skip')
             else:
-                ele_footer_blk = ele_blk.ele(
-                    '@@tag()=div@@class:footer-function-grid', timeout=2)
-                if not isinstance(ele_footer_blk, NoneElement):
-                    if self.comment_post(
-                        ele_blk, ele_footer_blk, s_dataid, s_content
-                    ) is False:
-                        continue
+                # 检查当日回复数量限制
+                daily_max_comment = getattr(
+                    self.args, 'daily_max_comment', 0)
+                if daily_max_comment > 0:
+                    interaction_stats = self.get_today_interaction_stats()
+                    if interaction_stats['comment'] >= daily_max_comment:
+                        self.logit(
+                            None,
+                            f'当日回复数量已达上限 '
+                            f'({interaction_stats["comment"]}/'
+                            f'{daily_max_comment})，跳过回复'
+                        )
+                    else:
+                        ele_footer_blk = ele_blk.ele(
+                            '@@tag()=div@@class:footer-function-grid',
+                            timeout=2)
+                        if not isinstance(ele_footer_blk, NoneElement):
+                            if self.comment_post(
+                                ele_blk, ele_footer_blk, s_dataid, s_content
+                            ) is False:
+                                continue
+                else:
+                    ele_footer_blk = ele_blk.ele(
+                        '@@tag()=div@@class:footer-function-grid',
+                        timeout=2)
+                    if not isinstance(ele_footer_blk, NoneElement):
+                        if self.comment_post(
+                            ele_blk, ele_footer_blk, s_dataid, s_content
+                        ) is False:
+                            continue
 
             # 检查是否已经点赞过
             if self.is_interacted(s_dataid, 'like'):
                 self.logit(None, f'Already liked {s_dataid}, skip')
             else:
-                ele_footer_blk = ele_blk.ele(
-                    '@@tag()=div@@class:footer-function-grid', timeout=2)
-                if not isinstance(ele_footer_blk, NoneElement):
-                    if self.like_post(ele_footer_blk, s_dataid) is False:
-                        continue
-                    tab.wait(3)
+                # 检查当日点赞数量限制
+                daily_max_like = getattr(self.args, 'daily_max_like', 0)
+                if daily_max_like > 0:
+                    interaction_stats = self.get_today_interaction_stats()
+                    if interaction_stats['like'] >= daily_max_like:
+                        self.logit(
+                            None,
+                            f'当日点赞数量已达上限 '
+                            f'({interaction_stats["like"]}/{daily_max_like})，'
+                            f'跳过点赞'
+                        )
+                    else:
+                        ele_footer_blk = ele_blk.ele(
+                            '@@tag()=div@@class:footer-function-grid',
+                            timeout=2)
+                        if not isinstance(ele_footer_blk, NoneElement):
+                            if self.like_post(
+                                ele_footer_blk, s_dataid
+                            ) is False:
+                                continue
+                            tab.wait(3)
+                else:
+                    ele_footer_blk = ele_blk.ele(
+                        '@@tag()=div@@class:footer-function-grid',
+                        timeout=2)
+                    if not isinstance(ele_footer_blk, NoneElement):
+                        if self.like_post(ele_footer_blk, s_dataid) is False:
+                            continue
+                        tab.wait(3)
 
         return False
 
-    def square_run(self):
-        self.browser = self.inst_dp.get_browser(self.args.profile)
+    def get_today_post_stats_by_project(self):
+        """
+        统计今日分项目统计各自的长文和短文发送总数
 
+        返回:
+            dict: {
+                '项目名': {
+                    'post_short': 短文数量,
+                    'post_long': 长文数量
+                }
+            }
+        """
+        if not os.path.exists(self.file_status):
+            return {}
+
+        # 使用 TZ_OFFSET 获取今天的日期字符串
+        today_str = format_ts(time.time(), style=1, tz_offset=TZ_OFFSET)
+        stats = {}
+
+        try:
+            with open(self.file_status, 'r') as fp:
+                lines = fp.readlines()
+        except Exception:  # noqa
+            return {}
+
+        for line in lines:
+            line = line.strip()
+            if not line or line.startswith('update'):
+                continue
+            parts = line.split(',', 3)
+            if len(parts) < 4:
+                continue
+            s_ts, s_op_type, s_proj, _ = parts
+
+            # 只统计 post_short 和 post_long
+            if s_op_type not in ['post_short', 'post_long']:
+                continue
+
+            try:
+                # 解析时间戳字符串
+                post_ts = datetime.strptime(s_ts, '%Y-%m-%dT%H:%M:%S%z')
+                # 转换为时间戳（秒）
+                post_ts_timestamp = post_ts.timestamp()
+                # 使用 TZ_OFFSET 转换为日期字符串进行比较
+                post_date_str = format_ts(
+                    post_ts_timestamp, style=1, tz_offset=TZ_OFFSET)
+                if post_date_str == today_str:
+                    # 初始化项目统计
+                    if s_proj not in stats:
+                        stats[s_proj] = {
+                            'post_short': 0,
+                            'post_long': 0
+                        }
+                    # 增加对应类型的计数
+                    if s_op_type == 'post_short':
+                        stats[s_proj]['post_short'] += 1
+                    elif s_op_type == 'post_long':
+                        stats[s_proj]['post_long'] += 1
+            except Exception:  # noqa
+                continue
+
+        return stats
+
+    def get_today_interaction_stats(self):
+        """
+        统计今日总的回复和点赞数量
+
+        返回:
+            dict: {
+                'comment': 回复数量,
+                'like': 点赞数量
+            }
+        """
+        if not os.path.exists(self.file_interaction):
+            return {'comment': 0, 'like': 0}
+
+        # 使用 TZ_OFFSET 获取今天的日期字符串
+        today_str = format_ts(time.time(), style=1, tz_offset=TZ_OFFSET)
+        stats = {'comment': 0, 'like': 0}
+
+        try:
+            with open(self.file_interaction, 'r') as fp:
+                lines = fp.readlines()
+        except Exception:  # noqa
+            return stats
+
+        for line in lines:
+            line = line.strip()
+            if not line or line.startswith('update'):
+                continue
+            parts = line.split(',', 3)
+            if len(parts) < 4:
+                continue
+            s_ts, _, s_op_type, _ = parts
+
+            # 只统计 comment 和 like
+            if s_op_type not in ['comment', 'like']:
+                continue
+
+            try:
+                # 解析时间戳字符串
+                interaction_ts = datetime.strptime(s_ts, '%Y-%m-%dT%H:%M:%S%z')
+                # 转换为时间戳（秒）
+                interaction_ts_timestamp = interaction_ts.timestamp()
+                # 使用 TZ_OFFSET 转换为日期字符串进行比较
+                interaction_date_str = format_ts(
+                    interaction_ts_timestamp, style=1, tz_offset=TZ_OFFSET)
+                if interaction_date_str == today_str:
+                    # 增加对应类型的计数
+                    if s_op_type == 'comment':
+                        stats['comment'] += 1
+                    elif s_op_type == 'like':
+                        stats['like'] += 1
+            except Exception:  # noqa
+                continue
+
+        return stats
+
+    def square_run(self):
         if args.debug:
-            tab = self.browser.latest_tab
-            tab.get(self.args.url)
-            tab.wait.doc_loaded()
-            tab.wait(3)
             pdb.set_trace()
+
+        # 统计今日分项目长文和短文发送总数
+        post_stats = self.get_today_post_stats_by_project()
+        if post_stats:
+            self.logit(None, '##############################')
+            for proj, stats in post_stats.items():
+                self.logit(
+                    None,
+                    f'今日发帖 [{proj}]: 短文 {stats["post_short"]} 条, '
+                    f'长文 {stats["post_long"]} 条'
+                )
+        else:
+            self.logit(None, '今日统计: 暂无发送记录')
+
+        self.logit(None, '##############################')
+        # 统计今日总的回复和点赞数量
+        interaction_stats = self.get_today_interaction_stats()
+        self.logit(
+            None,
+            f'今日互动: 回复 {interaction_stats["comment"]} 条, '
+            f'点赞 {interaction_stats["like"]} 条'
+        )
+        self.logit(None, '##############################')
 
         self.square_post()
         self.process_recommend_post()
@@ -1768,7 +2018,7 @@ class BnSquare():
             s_msg = 'Manual Exit. Press any key to exit! ⚠️'  # noqa
             input(s_msg)
 
-        self.logit('square_run', 'Finished!')
+        # self.logit('square_run', 'Finished!')
 
         return True
 
@@ -1801,30 +2051,36 @@ def main(args):
     s_profile = args.profile
     inst_square = BnSquare()
     inst_square.set_args(args)
+    inst_square.inst_dp.plugin_yescapcha = False
+    inst_square.inst_dp.plugin_capmonster = False
+    inst_square.inst_dp.plugin_okx = False
+    inst_square.inst_dp.set_args(args)
+    inst_square.browser = inst_square.inst_dp.get_browser(args.profile)
+
+    tab = inst_square.browser.latest_tab
+    tab.get(inst_square.args.url)
+    tab.wait.doc_loaded()
+    tab.wait(1)
 
     if args.debug:
         pdb.set_trace()
 
-    # 如果出现异常(与页面的连接已断开)，增加重试
-    max_try_except = 3
-    for j in range(1, max_try_except+1):
-        try:
-            if j > 1:
-                logger.info(f'⚠️ 正在重试，当前是第{j}次执行，最多尝试{max_try_except}次 [{s_profile}]')  # noqa
+    while True:
+        # 如果出现异常(与页面的连接已断开)，增加重试
+        max_try_except = 3
+        for j in range(1, max_try_except+1):
+            try:
+                if j > 1:
+                    logger.info(f'⚠️ 正在重试，当前是第{j}次执行，最多尝试{max_try_except}次 [{s_profile}]')  # noqa
 
-            inst_square.set_args(args)
-            inst_square.inst_dp.plugin_yescapcha = False
-            inst_square.inst_dp.plugin_capmonster = False
-            inst_square.inst_dp.plugin_okx = False
-            inst_square.inst_dp.set_args(args)
-            inst_square.square_run()
-            break
+                inst_square.square_run()
+                break
 
-        except Exception as e:
-            logger.info(f'[{args.profile}] An error occurred: {str(e)}')
-            # inst_square.close()
-            if j < max_try_except:
-                time.sleep(5)
+            except Exception as e:
+                logger.info(f'[{args.profile}] An error occurred: {str(e)}')
+                # inst_square.close()
+                if j < max_try_except:
+                    time.sleep(5)
 
         sleep_time = random.randint(args.sleep_sec_min, args.sleep_sec_max)
         if sleep_time > 60:
@@ -1903,19 +2159,22 @@ if __name__ == '__main__':
         help='Maximum sleep seconds after reaching interaction limit (default: 1200, 20 minutes)'  # noqa
     )
     parser.add_argument(
+        '--daily_max_like', required=False, type=int, default=100,
+        help='Daily maximum like count (0 means no limit, default: 100)'
+    )
+    parser.add_argument(
+        '--daily_max_comment', required=False, type=int, default=100,
+        help='Daily maximum comment/reply count '
+        '(0 means no limit, default: 100)'
+    )
+    parser.add_argument(
         '--debug', required=False, action='store_true',
         help='Debug mode'
     )
 
     args = parser.parse_args()
     show_msg(args)
-    if args.loop_interval <= 0:
-        main(args)
-    else:
-        while True:
-            main(args)
-            logger.info('#####***** Loop sleep {} seconds ...'.format(args.loop_interval))  # noqa
-            time.sleep(args.loop_interval)
+    main(args)
 
 """
 # noqa
