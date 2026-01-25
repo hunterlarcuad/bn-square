@@ -1653,7 +1653,6 @@ class BnSquare():
                         '@@class:feed-comment-input-submit-btn',
                         timeout=2)
                     if not isinstance(ele_btn, NoneElement):
-                        pdb.set_trace()
                         ele_btn.click(by_js=True)
                         tab.wait(2)
 
