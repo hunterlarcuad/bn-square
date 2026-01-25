@@ -1768,7 +1768,7 @@ class BnSquare():
     def click_home(self):
         tab = self.browser.latest_tab
         ele_btn = tab.ele(
-            '@@tag()=a@@class:bn-balink nav-item active', timeout=2)
+            '@@tag()=a@@class:bn-balink nav-item ', timeout=2)
         if not isinstance(ele_btn, NoneElement):
             s_text = ele_btn.text
             self.logit(None, f'Click home button ...[{s_text}]')
