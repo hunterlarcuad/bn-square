@@ -1221,7 +1221,7 @@ class BnSquare():
                 # 识别图片右上角的关闭按钮
                 ele_btn = ele_blk.ele(
                     '@@tag()=div@@class:free remove-btn', timeout=2)
-                if not isinstance(ele_btn, NoneElement):
+                if isinstance(ele_btn, NoneElement):
                     tab.wait(1)
                 else:
                     self.logit(
@@ -1750,10 +1750,27 @@ class BnSquare():
 
         return False
 
+    def display_new_posts(self):
+        tab = self.browser.latest_tab
+        ele_blk = tab.ele('@@tag()=div@@class=new-posts-hint', timeout=2)
+        if not isinstance(ele_blk, NoneElement):
+            ele_span = ele_blk.ele('@@tag()=span', timeout=2)
+            if not isinstance(ele_span, NoneElement):
+                s_text = ele_span.text
+                self.logit(None, f'New posts hint: {s_text}')
+                if ele_span.wait.clickable(timeout=2) is not False:
+                    ele_span.click(by_js=True)
+                    tab.wait.doc_loaded()
+                    tab.wait(6)
+                    return True
+        return False
+
     def process_recommend_post(self):
         # 如果今日回复和点赞数量已达上限，则不处理
         if self.is_interaction_limit_reached():
             return False
+
+        self.display_new_posts()
 
         tab = self.browser.latest_tab
         ele_blks = tab.eles(
