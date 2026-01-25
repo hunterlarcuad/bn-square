@@ -1765,6 +1765,19 @@ class BnSquare():
                     return True
         return False
 
+    def click_home(self):
+        tab = self.browser.latest_tab
+        ele_btn = tab.ele(
+            '@@tag()=a@@class:bn-balink nav-item active', timeout=2)
+        if not isinstance(ele_btn, NoneElement):
+            s_text = ele_btn.text
+            self.logit(None, f'Click home button ...[{s_text}]')
+            ele_btn.click(by_js=True)
+            tab.wait.doc_loaded()
+            tab.wait(3)
+            return True
+        return False
+
     def process_recommend_post(self):
         # 如果今日回复和点赞数量已达上限，则不处理
         if self.is_interaction_limit_reached():
@@ -1778,6 +1791,12 @@ class BnSquare():
             timeout=2)
         n_posts = len(ele_blks)
         self.logit(None, f'Found {n_posts} posts')
+
+        if n_posts == 0:
+            self.click_home()
+            self.logit(None, 'No posts found, click home button')
+            return False
+
         for ele_blk in ele_blks:
             # 检查是否还在互动 sleep 期间
             if self.is_in_interaction_sleep_period():
