@@ -1544,29 +1544,34 @@ class BnSquare():
         return False
 
     def square_post(self):
-        for s_proj, d_proj in DEF_DIC_PROJECT.items():
-            self.logit('square_post', f'proj: {s_proj}')
-            self.proj = s_proj
+        # 随机选择一个项目
+        s_proj = random.choice(list(DEF_DIC_PROJECT.keys()))
+        self.logit('square_post', f'proj: {s_proj}')
+        self.proj = s_proj
 
-            # 检查推文间隔，如果需要等待则返回
-            if self.check_and_wait_if_post_interval_too_short():
-                continue
+        # 检查推文间隔，如果需要等待则返回
+        if self.check_and_wait_if_post_interval_too_short():
+            return False
 
-            # 检查短推文
+        # 随机决定是发短文还是长文
+        post_type = random.choice(['post_short', 'post_long'])
+
+        # 根据类型设置参数
+        if post_type == 'post_short':
             n_sleep = random.randint(1800, 3600)
-            b_is_time_ready = self.is_time_ready('post_short', s_proj, n_sleep)
-            b_is_count_ready = self.is_count_ready('post_short', s_proj)
-            if b_is_time_ready and b_is_count_ready:
-                self.publish_post(min_len=150, max_len=400)
-
-            # 检查长推文
+            min_len, max_len = 150, 400
+        else:
             n_sleep = random.randint(3600, 7200)
-            b_is_time_ready = self.is_time_ready('post_long', s_proj, n_sleep)
-            b_is_count_ready = self.is_count_ready('post_long', s_proj)
-            if b_is_time_ready and b_is_count_ready:
-                self.publish_post(min_len=600, max_len=800)
+            min_len, max_len = 600, 800
 
-        return True
+        # 检查推文条件并发布
+        b_is_time_ready = self.is_time_ready(post_type, s_proj, n_sleep)
+        b_is_count_ready = self.is_count_ready(post_type, s_proj)
+        if b_is_time_ready and b_is_count_ready:
+            if self.publish_post(min_len=min_len, max_len=max_len):
+                return True
+
+        return False
 
     def is_liked(self, ele_like):
         ele_btn = ele_like.ele(
