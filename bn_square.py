@@ -341,10 +341,10 @@ class BnSquare():
         tab.wait(1)
         return True
 
-    def bn_post(self, lst_text, upload_image=False):
+    def bn_short_post(self, lst_text, upload_image=False):
         max_try = 10
         for i in range(1, max_try+1):
-            self.logit('bn_post', f'try_i={i}/{max_try}')
+            self.logit('bn_short_post', f'try_i={i}/{max_try}')
             tab = self.browser.latest_tab
             tab.wait.doc_loaded()
 
@@ -367,20 +367,36 @@ class BnSquare():
                     continue
 
             ele_btn = tab.ele(
-                '@@tag()=button@@data-bn-type=button@@class:css-4dec1t',
+                '@@tag()=button@@data-bn-type=button@@class:css-@@text()=发文',
                 timeout=2)
             if not isinstance(ele_btn, NoneElement):
                 self.logit(None, 'Try to click post button ...')
                 tab.actions.move_to(ele_btn)
-                if ele_btn.wait.clickable(timeout=5) is not False:
-                    ele_btn.click(by_js=True)
-                    self.status_append(
-                        s_op_type='post_short',
-                        s_proj=self.proj,
-                        s_msg='post short text successfully',
-                    )
-                    tab.wait(2)
-                    return True
+                n_max_wait = 180
+                i = 0
+                while i < n_max_wait:
+                    i += 1
+                    if ele_btn.wait.clickable(timeout=5) is not False:
+                        ele_btn.click(by_js=True)
+                        self.status_append(
+                            s_op_type='post_short',
+                            s_proj=self.proj,
+                            s_msg='post short text successfully',
+                        )
+                        tab.wait(2)
+                        return True
+                    self.logit(
+                        None,
+                        f'Wait for post button to be clickable, '
+                        f'waited {i}/{n_max_wait} seconds ...')
+                    tab.wait(3)
+                self.logit(
+                    None,
+                    f'Fail to click post button, '
+                    f'waited {i}/{n_max_wait} seconds ...')
+                return False
+            else:
+                self.logit(None, 'Post button is not found, retrying ...')
 
         return False
 
@@ -1230,7 +1246,7 @@ class BnSquare():
                     return True
         return False
 
-    def long_input(self, lst_text, s_title=None, upload_image=False):
+    def bn_long_post(self, lst_text, s_title=None, upload_image=False):
         tab = self.browser.latest_tab
         ele_btn = tab.ele('@@tag()=div@@class=css-l3k73g', timeout=2)
         if not isinstance(ele_btn, NoneElement):
@@ -1260,16 +1276,28 @@ class BnSquare():
         # publish
         ele_btn = tab.ele('@@tag()=button@@class:css-1uzbnpg', timeout=2)
         if not isinstance(ele_btn, NoneElement):
-            if ele_btn.wait.clickable(timeout=5) is not False:
-                ele_btn.click()
-                self.status_append(
-                    s_op_type='post_long',
-                    s_proj=self.proj,
-                    s_msg='post long text successfully',
-                )
+            n_max_wait = 180
+            i = 0
+            while i < n_max_wait:
+                i += 1
+                if ele_btn.wait.clickable(timeout=5) is not False:
+                    ele_btn.click()
+                    self.status_append(
+                        s_op_type='post_long',
+                        s_proj=self.proj,
+                        s_msg='post long text successfully',
+                    )
+                    tab.wait(3)
+                    return True
+                self.logit(
+                    None,
+                    f'Wait for post button to be clickable, '
+                    f'waited {i}/{n_max_wait} seconds ...')
                 tab.wait(3)
-                return True
-        else:
+            self.logit(
+                None,
+                f'Fail to click post button, '
+                f'waited {i}/{n_max_wait} seconds ...')
             return False
         return False
 
@@ -1343,12 +1371,12 @@ class BnSquare():
             upload_image = self.args.upload_image_long
             self.post_long_text()
             s_title = self.gene_title_by_llm(s_text, min_len=10, max_len=30)
-            if self.long_input(lst_text, s_title, upload_image) is False:
+            if self.bn_long_post(lst_text, s_title, upload_image) is False:
                 return False
         else:
             # 短文：使用 upload_image_short 参数
             upload_image = self.args.upload_image_short
-            if self.bn_post(lst_text, upload_image) is False:
+            if self.bn_short_post(lst_text, upload_image) is False:
                 return False
         return True
 
@@ -1543,9 +1571,77 @@ class BnSquare():
 
         return False
 
+    def get_incomplete_projects(self):
+        """
+        获取未完成的项目列表
+
+        一个项目"完成"的定义是：
+        - 当天的 'post_short' 数量 >= DEF_MAX_NUM_SHORT_POST
+        - 并且当天的 'post_long' 数量 >= DEF_MAX_NUM_LONG_POST
+
+        返回:
+            list: 未完成的项目名称列表
+        """
+        # 获取今日统计
+        post_stats = self.get_today_post_stats_by_project()
+        incomplete_projects = []
+
+        for proj in DEF_DIC_PROJECT.keys():
+            # 获取该项目的统计，如果不存在则默认为0
+            stats = post_stats.get(proj, {'post_short': 0, 'post_long': 0})
+            short_count = stats.get('post_short', 0)
+            long_count = stats.get('post_long', 0)
+
+            # 如果两种类型都达到上限，则项目已完成
+            if (short_count >= DEF_MAX_NUM_SHORT_POST and
+                    long_count >= DEF_MAX_NUM_LONG_POST):
+                continue
+
+            incomplete_projects.append(proj)
+
+        # 如果没有未完成的项目，返回所有项目（避免空列表）
+        # if not incomplete_projects:
+        #    incomplete_projects = list(DEF_DIC_PROJECT.keys())
+
+        return incomplete_projects
+
+    def get_incomplete_post_types(self, s_proj):
+        """
+        获取指定项目未完成的推文类型列表
+
+        参数:
+            s_proj: 项目名称
+
+        返回:
+            list: 未完成的推文类型列表，如 ['post_short', 'post_long'] 或 ['post_short'] 等
+        """
+        incomplete_types = []
+
+        # 检查 post_short 是否完成
+        short_count = self.get_today_post_count(
+            self.file_status, s_proj, 'post_short')
+        if short_count < DEF_MAX_NUM_SHORT_POST:
+            incomplete_types.append('post_short')
+
+        # 检查 post_long 是否完成
+        long_count = self.get_today_post_count(
+            self.file_status, s_proj, 'post_long')
+        if long_count < DEF_MAX_NUM_LONG_POST:
+            incomplete_types.append('post_long')
+
+        # 如果两种类型都完成了，返回所有类型（避免空列表）
+        if not incomplete_types:
+            incomplete_types = ['post_short', 'post_long']
+
+        return incomplete_types
+
     def square_post(self):
-        # 随机选择一个项目
-        s_proj = random.choice(list(DEF_DIC_PROJECT.keys()))
+        # 从未完成的项目中随机选择一个项目
+        incomplete_projects = self.get_incomplete_projects()
+        if not incomplete_projects:
+            # self.logit(None, 'No incomplete projects, return')
+            return False
+        s_proj = random.choice(incomplete_projects)
         self.logit('square_post', f'proj: {s_proj}')
         self.proj = s_proj
 
@@ -1553,8 +1649,9 @@ class BnSquare():
         if self.check_and_wait_if_post_interval_too_short():
             return False
 
-        # 随机决定是发短文还是长文
-        post_type = random.choice(['post_short', 'post_long'])
+        # 从未完成的推文类型中随机选择一个
+        incomplete_types = self.get_incomplete_post_types(s_proj)
+        post_type = random.choice(incomplete_types)
 
         # 根据类型设置参数
         if post_type == 'post_short':
@@ -1569,6 +1666,9 @@ class BnSquare():
         b_is_count_ready = self.is_count_ready(post_type, s_proj)
         if b_is_time_ready and b_is_count_ready:
             if self.publish_post(min_len=min_len, max_len=max_len):
+                self.click_home()
+                self.logit(
+                    None, f'[{self.proj}] [{post_type}] Post successfully')
                 return True
 
         return False
@@ -1747,10 +1847,10 @@ class BnSquare():
 
         # 只有当所有设置了限制的项目都达到上限时，才返回 True
         if like_limit_reached and comment_limit_reached:
-            self.logit(
-                None,
-                '今日点赞和回复数量都已达上限，停止处理推荐帖子'
-            )
+            # self.logit(
+            #     None,
+            #     '今日点赞和回复数量都已达上限，停止处理推荐帖子'
+            # )
             return True
 
         return False
@@ -1798,10 +1898,20 @@ class BnSquare():
         self.logit(None, f'Found {n_posts} posts')
 
         if n_posts == 0:
-            self.click_home()
-            self.logit(None, 'No posts found, click home button')
+            # 如果互动等待期已经开始且已经超过30分钟，则点击首页
+            if self.interaction_sleep_start_ts:
+                now_ts = datetime.now().astimezone()
+                elapsed_seconds = (
+                    now_ts - self.interaction_sleep_start_ts).total_seconds()
+                if elapsed_seconds > 1800:
+                    self.click_home()
+                    self.logit(
+                        None,
+                        'Interaction sleep period exceeded 30 minutes, '
+                        'clicked home button'
+                    )
+            self.logit(None, 'No posts found, return')
             return False
-
         for ele_blk in ele_blks:
             # 检查是否还在互动 sleep 期间
             if self.is_in_interaction_sleep_period():
@@ -1852,6 +1962,7 @@ class BnSquare():
                             f'({interaction_stats["comment"]}/'
                             f'{daily_max_comment})，跳过回复'
                         )
+                        return True
                     else:
                         ele_footer_blk = ele_blk.ele(
                             '@@tag()=div@@class:footer-function-grid',
@@ -1886,6 +1997,7 @@ class BnSquare():
                             f'({interaction_stats["like"]}/{daily_max_like})，'
                             f'跳过点赞'
                         )
+                        return True
                     else:
                         ele_footer_blk = ele_blk.ele(
                             '@@tag()=div@@class:footer-function-grid',
@@ -2036,8 +2148,9 @@ class BnSquare():
             for proj, stats in post_stats.items():
                 self.logit(
                     None,
-                    f'今日发帖 [{proj}]: 短文 {stats["post_short"]} 条, '
-                    f'长文 {stats["post_long"]} 条'
+                    f'今日发帖 [{proj}]: '
+                    f'短文 [{stats["post_short"]}/{DEF_MAX_NUM_SHORT_POST}], '
+                    f'长文 [{stats["post_long"]}/{DEF_MAX_NUM_LONG_POST}]'
                 )
         else:
             self.logit(None, '今日统计: 暂无发送记录')
@@ -2047,8 +2160,9 @@ class BnSquare():
         interaction_stats = self.get_today_interaction_stats()
         self.logit(
             None,
-            f'今日互动: 回复 {interaction_stats["comment"]} 条, '
-            f'点赞 {interaction_stats["like"]} 条'
+            f'今日互动: 回复 [{interaction_stats["comment"]}/'
+            f'{self.args.daily_max_comment}], '
+            f'点赞 [{interaction_stats["like"]}/{self.args.daily_max_like}]'
         )
         self.logit(None, '##############################')
 
