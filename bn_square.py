@@ -1211,12 +1211,25 @@ class BnSquare():
                 ele_btn = ele_blk.ele(
                     '@@tag()=span@@class=rc-upload', timeout=2)
                 if not isinstance(ele_btn, NoneElement):
+                    if i % 10 == 0:
+                        self.logit(
+                            None,
+                            f'Image is not found, '
+                            f'waited {i}/{n_max_wait} seconds ...')
                     tab.wait(1)
                 else:
                     self.logit(
-                        None, f'Image is uploaded, waited {i} seconds ...')
+                        None,
+                        f'Image element is not found, '
+                        f'waited {i}/{n_max_wait} seconds ...')
                     tab.wait(10)
                     return True
+            else:
+                self.logit(
+                    None,
+                    f'Image element is not found, '
+                    f'waited {i}/{n_max_wait} seconds ...')
+                tab.wait(1)
         return False
 
     def is_short_img_uploaded(self):
@@ -1238,12 +1251,25 @@ class BnSquare():
                 ele_btn = ele_blk.ele(
                     '@@tag()=div@@class:free remove-btn', timeout=2)
                 if isinstance(ele_btn, NoneElement):
+                    if i % 10 == 0:
+                        self.logit(
+                            None,
+                            f'Image is not found, '
+                            f'waited {i}/{n_max_wait} seconds ...')
                     tab.wait(1)
                 else:
                     self.logit(
-                        None, f'Image is uploaded, waited {i} seconds ...')
+                        None,
+                        f'Image element is found, '
+                        f'waited {i}/{n_max_wait} seconds ...')
                     tab.wait(10)
                     return True
+            else:
+                self.logit(
+                    None,
+                    f'Image element is not found, '
+                    f'waited {i}/{n_max_wait} seconds ...')
+                tab.wait(1)
         return False
 
     def bn_long_post(self, lst_text, s_title=None, upload_image=False):
