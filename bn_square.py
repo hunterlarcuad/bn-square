@@ -77,6 +77,8 @@ class BnSquare():
 
         self.n_like = 0
         self.n_reply = 0
+        self.n_claim_redpacket = 0
+        self.n_miss_redpacket = 0
 
         self.interaction_sleep_start_ts = None
         self.interaction_sleep_seconds = None
@@ -86,7 +88,7 @@ class BnSquare():
         更新互动计数，当任意一个达到限制数量时，清零并sleep
 
         参数:
-            op_type: 操作类型，'like' 或 'comment'
+            op_type: 操作类型，'like'、'comment'、'claim_redpacket' 或 'miss_redpacket'
         """
         # 从命令行参数获取限制和sleep范围
         limit = self.args.interaction_limit
@@ -105,18 +107,37 @@ class BnSquare():
                 'update_interaction_count',
                 f'回复计数: {self.n_reply}/{limit}'
             )
+        elif op_type == 'claim_redpacket':
+            self.n_claim_redpacket += 1
+            self.logit(
+                'update_interaction_count',
+                f'领红包计数: {self.n_claim_redpacket}/{limit}'
+            )
+        elif op_type == 'miss_redpacket':
+            self.n_miss_redpacket += 1
+            self.logit(
+                'update_interaction_count',
+                f'错过红包计数: {self.n_miss_redpacket}（仅统计，不限制）'
+            )
+            # miss_redpacket 仅统计，不参与限制判断，直接返回
+            return
 
         # 如果任意一个达到限制数量，记录 sleep 开始时间和持续时间
-        if self.n_like >= limit or self.n_reply >= limit:
+        # 注意：miss_redpacket 不参与限制判断
+        if (self.n_like >= limit or self.n_reply >= limit or
+                self.n_claim_redpacket >= limit):
             sleep_minutes_min = sleep_min // 60
             sleep_minutes_max = sleep_max // 60
             self.logit(
                 'update_interaction_count',
-                f'达到限制（点赞: {self.n_like}, 回复: {self.n_reply}），'
+                f'达到限制（点赞: {self.n_like}, 回复: {self.n_reply}, '
+                f'领红包: {self.n_claim_redpacket}），'
                 f'清零并进入等待期 {sleep_minutes_min}-{sleep_minutes_max} 分钟'
             )
             self.n_like = 0
             self.n_reply = 0
+            self.n_claim_redpacket = 0
+            # miss_redpacket 不清零，仅统计
             sleep_seconds = random.randint(sleep_min, sleep_max)
             sleep_minutes = sleep_seconds // 60
             # 记录 sleep 开始时间和持续时间
@@ -1764,6 +1785,148 @@ class BnSquare():
                 return True
         return False
 
+    def click_back_arrow(self):
+        tab = self.browser.latest_tab
+        ele_back_arrow = tab.ele(
+            '@@tag()=div@@class:back-arrow-box', timeout=2)
+        if not isinstance(ele_back_arrow, NoneElement):
+            ele_btn = ele_back_arrow.ele(
+                '@@tag()=svg', timeout=2)
+            if not isinstance(ele_btn, NoneElement):
+                tab.actions.move_to(ele_btn).click()
+                tab.wait.doc_loaded()
+                tab.wait(3)
+                return True
+        return False
+
+    def get_redpacket_content(self):
+        s_text = ''
+        tab = self.browser.latest_tab
+        ele_quiz = tab.ele(
+            '@@tag()=div@@id=quiz-crypto-box', timeout=2)
+        if not isinstance(ele_quiz, NoneElement):
+            ele_content = ele_quiz.ele(
+                '@@tag()=div@@class=content', timeout=2)
+            if not isinstance(ele_content, NoneElement):
+                ele_info = ele_content.ele(
+                    '@@tag()=div@@data-bn-type=text', timeout=2)
+                if not isinstance(ele_info, NoneElement):
+                    s_text = ele_info.text
+        return s_text
+
+    def get_redpacket_amount(self):
+        s_text = ''
+        tab = self.browser.latest_tab
+        tab.wait.doc_loaded()
+        tab.wait(2)
+        ele_div = tab.ele(
+            '@@tag()=div@@class:confirm-modal', timeout=2)
+        if not isinstance(ele_div, NoneElement):
+            s_text = ele_div.text.replace('\n', ' ').strip()
+
+        return s_text
+
+    def comment_redpacket(self, ele_blk, ele_footer_blk, s_dataid, s_content):
+        tab = self.browser.latest_tab
+
+        tab.actions.move_to(ele_blk).click()
+        tab.wait.doc_loaded()
+        tab.wait(3)
+
+        s_text = ''
+
+        # 红包已过期/已领取
+        ele_tip = tab.ele(
+            '@@tag()=span@@class:tip tip-expired', timeout=2)
+        if not isinstance(ele_tip, NoneElement):
+            s_text = ele_tip.text
+            self.logit(None, f'Redpacket tip: {s_text}')
+
+            if s_dataid:
+                self.interaction_append(
+                    s_dataid, 'miss_redpacket', s_text
+                )
+            # 更新互动计数
+            self.update_interaction_count('miss_redpacket')
+
+            return False
+
+        ele_quiz = tab.ele(
+            '@@tag()=div@@id=quiz-crypto-box', timeout=2)
+        if not isinstance(ele_quiz, NoneElement):
+            ele_tip_answer = ele_quiz.ele(
+                '@@tag()=div@@class:tip', timeout=2)
+            if not isinstance(ele_tip_answer, NoneElement):
+                ele_span = ele_tip_answer.ele(
+                    '@@tag()=span', index=2, timeout=2)
+                if not isinstance(ele_span, NoneElement):
+                    s_text = ele_span.text
+                    if not s_text:
+                        s_text = self.get_redpacket_content()
+                        self.logit(None, f'Redpacket content: {s_text}')
+                    else:
+                        self.logit(None, f'Redpacket tip answer: {s_text}')
+                else:
+                    self.logit(None, 'Redpacket tip answer is not found')
+                    return False
+
+        ele_input = tab.ele(
+            '@@tag()=div@@class:feed-comment-input-textarea ',
+            timeout=2)
+        if not isinstance(ele_input, NoneElement):
+            lst_text = [s_text]
+            self.input_post_text(ele_input, lst_text)
+            tab.wait(1)
+            self.cancel_comment_and_forward(ele_blk)
+            tab.wait(1)
+
+            ele_btn = tab.ele(
+                '@@tag()=button@@data-bn-type=button'
+                '@@class:feed-comment-input-submit-btn',
+                timeout=2)
+            if not isinstance(ele_btn, NoneElement):
+                tab.actions.move_to(ele_btn)
+                ele_btn.click(by_js=True)
+                tab.wait(2)
+
+                # 关注并回复 弹窗
+                self.follow_and_reply()
+
+                # 确认领取 弹窗
+                ele_btn = tab.ele(
+                    '@@tag()=button'
+                    '@@class:confirm-modal-confirm',
+                    timeout=2)
+                if not isinstance(ele_btn, NoneElement):
+                    s_btn_text = ele_btn.text
+                    self.logit(None, f'Redpacket confirm button: {s_btn_text}')
+                    ele_btn.click(by_js=True)
+                    tab.wait(2)
+
+                s_amount = self.get_redpacket_amount()
+                self.logit(None, f'Redpacket amount: {s_amount}')
+
+                # 我已知晓
+                ele_btn = tab.ele(
+                    '@@tag()=button'
+                    '@@class:confirm-modal-confirm',
+                    timeout=2)
+                if not isinstance(ele_btn, NoneElement):
+                    s_btn_text = ele_btn.text
+                    self.logit(None, f'Redpacket after claimed: {s_btn_text}')
+                    ele_btn.click(by_js=True)
+                    tab.wait(2)
+
+                # 写入互动记录
+                if s_dataid:
+                    self.interaction_append(
+                        s_dataid, 'claim_redpacket', s_amount
+                    )
+                # 更新互动计数
+                self.update_interaction_count('claim_redpacket')
+                return True
+        return False
+
     def comment_post(self, ele_blk, ele_footer_blk, s_dataid, s_content):
         tab = self.browser.latest_tab
         ele_comment = ele_footer_blk.ele(
@@ -1795,17 +1958,7 @@ class BnSquare():
                         tab.wait(2)
 
                         # 关注并回复 弹窗
-                        ele_window = tab.ele(
-                            '@@tag()=div@@class:confirm-modal css',
-                            timeout=2)
-                        if not isinstance(ele_window, NoneElement):
-                            ele_btn = ele_window.ele(
-                                '@@tag()=button'
-                                '@@class:confirm-modal-confirm',
-                                timeout=2)
-                            if not isinstance(ele_btn, NoneElement):
-                                ele_btn.click(by_js=True)
-                                tab.wait(2)
+                        self.follow_and_reply()
 
                         # 写入互动记录
                         if s_dataid:
@@ -1817,6 +1970,21 @@ class BnSquare():
                         return True
 
         return False
+
+    def follow_and_reply(self):
+        # 关注并回复 弹窗
+        tab = self.browser.latest_tab
+        ele_window = tab.ele(
+            '@@tag()=div@@class:confirm-modal css',
+            timeout=2)
+        if not isinstance(ele_window, NoneElement):
+            ele_btn = ele_window.ele(
+                '@@tag()=button'
+                '@@class:confirm-modal-confirm',
+                timeout=2)
+            if not isinstance(ele_btn, NoneElement):
+                ele_btn.click(by_js=True)
+                tab.wait(2)
 
     def is_interaction_limit_reached(self):
         """
@@ -1909,6 +2077,13 @@ class BnSquare():
             return True
         return False
 
+    def get_post_blks(self):
+        tab = self.browser.latest_tab
+        ele_blks = tab.eles(
+            '@@tag()=div@@class:FeedBuzzBaseView_FeedBuzzBaseViewRootBox',
+            timeout=2)
+        return ele_blks
+
     def process_recommend_post(self):
         # 如果今日回复和点赞数量已达上限，则不处理
         if self.is_interaction_limit_reached():
@@ -1917,9 +2092,7 @@ class BnSquare():
         self.display_new_posts()
 
         tab = self.browser.latest_tab
-        ele_blks = tab.eles(
-            '@@tag()=div@@class:FeedBuzzBaseView_FeedBuzzBaseViewRootBox',
-            timeout=2)
+        ele_blks = self.get_post_blks()
         n_posts = len(ele_blks)
         self.logit(None, f'Found {n_posts} posts')
 
@@ -1938,7 +2111,14 @@ class BnSquare():
                     )
             self.logit(None, 'No posts found, return')
             return False
-        for ele_blk in ele_blks:
+
+        for i in range(n_posts):
+            self.logit(None, f'Processing post {i+1}/{n_posts}')
+            ele_blks = self.get_post_blks()
+            if i >= len(ele_blks):
+                break
+            ele_blk = ele_blks[i]
+
             # 检查是否还在互动 sleep 期间
             if self.is_in_interaction_sleep_period():
                 now_ts = datetime.now().astimezone()
@@ -1972,9 +2152,17 @@ class BnSquare():
                 self.logit(None, 'dataid is empty, skip')
                 continue
 
-            # 检查是否已经评论过
+            # 检查是否已经评论过（包括 comment、claim_redpacket、miss_redpacket）
             if self.is_interacted(s_dataid, 'comment'):
                 self.logit(None, f'Already commented on {s_dataid}, skip')
+            elif self.is_interacted(s_dataid, 'claim_redpacket'):
+                self.logit(
+                    None, f'Already claimed redpacket on {s_dataid}, skip')
+                continue
+            elif self.is_interacted(s_dataid, 'miss_redpacket'):
+                self.logit(
+                    None, f'Already missed redpacket on {s_dataid}, skip')
+                continue
             else:
                 # 检查当日回复数量限制
                 daily_max_comment = getattr(
@@ -1994,10 +2182,23 @@ class BnSquare():
                             '@@tag()=div@@class:footer-function-grid',
                             timeout=2)
                         if not isinstance(ele_footer_blk, NoneElement):
-                            if self.comment_post(
+                            b_ret_comment = self.comment_post(
                                 ele_blk, ele_footer_blk, s_dataid, s_content
-                            ) is False:
-                                continue
+                            )
+                            if b_ret_comment is False:
+                                b_ret_redpacket = self.comment_redpacket(
+                                    ele_blk, ele_footer_blk, s_dataid,
+                                    s_content
+                                )
+                                self.click_back_arrow()
+                                if b_ret_redpacket is False:
+                                    continue
+                                else:
+                                    self.logit(
+                                        None, 'Redpacket claimed successfully')
+                                    continue
+                            else:
+                                self.logit(None, 'Comment posted')
                 else:
                     ele_footer_blk = ele_blk.ele(
                         '@@tag()=div@@class:footer-function-grid',
@@ -2044,6 +2245,17 @@ class BnSquare():
                         tab.wait(3)
 
         return False
+
+    def process_redpacket_post(self):
+        tab = self.browser.latest_tab
+        s_url = (
+            'https://www.binance.com/zh-CN/square/search?s=%E7%BA%A2%E5%8C%85'
+        )
+        tab.get(s_url)
+        tab.wait.doc_loaded()
+        tab.wait(3)
+
+        self.process_recommend_post()
 
     def get_today_post_stats_by_project(self):
         """
@@ -2110,20 +2322,28 @@ class BnSquare():
 
     def get_today_interaction_stats(self):
         """
-        统计今日总的回复和点赞数量
+        统计今日总的回复、点赞、领红包和错过红包数量
 
         返回:
             dict: {
                 'comment': 回复数量,
-                'like': 点赞数量
+                'like': 点赞数量,
+                'claim_redpacket': 领红包数量,
+                'miss_redpacket': 错过红包数量
             }
         """
         if not os.path.exists(self.file_interaction):
-            return {'comment': 0, 'like': 0}
+            return {
+                'comment': 0,
+                'like': 0,
+                'claim_redpacket': 0,
+                'miss_redpacket': 0
+            }
 
         # 使用 TZ_OFFSET 获取今天的日期字符串
         today_str = format_ts(time.time(), style=1, tz_offset=TZ_OFFSET)
-        stats = {'comment': 0, 'like': 0}
+        stats = {'comment': 0, 'like': 0,
+                 'claim_redpacket': 0, 'miss_redpacket': 0}
 
         try:
             with open(self.file_interaction, 'r') as fp:
@@ -2140,8 +2360,9 @@ class BnSquare():
                 continue
             s_ts, _, s_op_type, _ = parts
 
-            # 只统计 comment 和 like
-            if s_op_type not in ['comment', 'like']:
+            # 只统计 comment、like、claim_redpacket 和 miss_redpacket
+            if s_op_type not in [
+                    'comment', 'like', 'claim_redpacket', 'miss_redpacket']:
                 continue
 
             try:
@@ -2158,6 +2379,10 @@ class BnSquare():
                         stats['comment'] += 1
                     elif s_op_type == 'like':
                         stats['like'] += 1
+                    elif s_op_type == 'claim_redpacket':
+                        stats['claim_redpacket'] += 1
+                    elif s_op_type == 'miss_redpacket':
+                        stats['miss_redpacket'] += 1
             except Exception:  # noqa
                 continue
 
@@ -2182,17 +2407,23 @@ class BnSquare():
             self.logit(None, '今日统计: 暂无发送记录')
 
         self.logit(None, '##############################')
-        # 统计今日总的回复和点赞数量
+        # 统计今日总的回复、点赞、领红包和错过红包数量
         interaction_stats = self.get_today_interaction_stats()
         self.logit(
             None,
             f'今日互动: 回复 [{interaction_stats["comment"]}/'
             f'{self.args.daily_max_comment}], '
-            f'点赞 [{interaction_stats["like"]}/{self.args.daily_max_like}]'
+            f'点赞 [{interaction_stats["like"]}/{self.args.daily_max_like}], '
+            f'领红包 [{interaction_stats["claim_redpacket"]}/'
+            f'{self.args.interaction_limit}], '
+            f'错过红包 [{interaction_stats["miss_redpacket"]}/'
+            f'{self.args.interaction_limit}]'
         )
         self.logit(None, '##############################')
 
         self.square_post()
+        self.process_redpacket_post()
+        self.click_home()
         self.process_recommend_post()
 
         if self.args.manual_exit:
