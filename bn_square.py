@@ -1900,8 +1900,13 @@ class BnSquare():
                 if not isinstance(ele_btn, NoneElement):
                     s_btn_text = ele_btn.text
                     self.logit(None, f'Redpacket confirm button: {s_btn_text}')
-                    ele_btn.click(by_js=True)
-                    tab.wait(2)
+                    if ele_btn.wait.clickable(timeout=5) is not False:
+                        ele_btn.click(by_js=True)
+                        tab.wait(5)
+                    else:
+                        self.logit(
+                            None, 'Redpacket confirm button is not clickable')
+                        return False
 
                 s_amount = self.get_redpacket_amount()
                 self.logit(None, f'Redpacket amount: {s_amount}')
