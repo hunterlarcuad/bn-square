@@ -7,7 +7,7 @@ import time
 import pdb  # noqa
 import shutil
 import re  # noqa
-from datetime import datetime  # noqa
+from datetime import datetime, timedelta  # noqa
 
 from DrissionPage._elements.none_element import NoneElement
 
@@ -82,6 +82,9 @@ class BnSquare():
 
         self.interaction_sleep_start_ts = None
         self.interaction_sleep_seconds = None
+
+        self.process_redpacket_post_last_ts = None
+        self.process_redpacket_post_interval_sec = None
 
     def update_interaction_count(self, op_type):
         """
@@ -1892,35 +1895,35 @@ class BnSquare():
                 # 关注并回复 弹窗
                 self.follow_and_reply()
 
-                # 确认领取 弹窗
-                ele_btn = tab.ele(
-                    '@@tag()=button'
-                    '@@class:confirm-modal-confirm',
-                    timeout=2)
-                if not isinstance(ele_btn, NoneElement):
-                    s_btn_text = ele_btn.text
-                    self.logit(None, f'Redpacket confirm button: {s_btn_text}')
-                    if ele_btn.wait.clickable(timeout=5) is not False:
-                        ele_btn.click(by_js=True)
-                        tab.wait(5)
-                    else:
-                        self.logit(
-                            None, 'Redpacket confirm button is not clickable')
-                        return False
+                s_amount = ''
 
-                s_amount = self.get_redpacket_amount()
-                self.logit(None, f'Redpacket amount: {s_amount}')
-
-                # 我已知晓
-                ele_btn = tab.ele(
-                    '@@tag()=button'
-                    '@@class:confirm-modal-confirm',
-                    timeout=2)
-                if not isinstance(ele_btn, NoneElement):
-                    s_btn_text = ele_btn.text
-                    self.logit(None, f'Redpacket after claimed: {s_btn_text}')
-                    ele_btn.click(by_js=True)
+                for i in range(3):
                     tab.wait(2)
+                    ele_btn = tab.ele(
+                        '@@tag()=button'
+                        '@@class:confirm-modal-confirm',
+                        timeout=2)
+                    if isinstance(ele_btn, NoneElement):
+                        break
+                    s_btn_text = ele_btn.text
+                    self.logit(
+                        None, f'Redpacket confirm button: {s_btn_text}')
+                    if s_btn_text == '我已知晓':
+                        s_amount = self.get_redpacket_amount()
+                        self.logit(None, f'Redpacket amount: {s_amount}')
+                        if ele_btn.wait.clickable(timeout=5) is not False:
+                            ele_btn.click(by_js=True)
+                            tab.wait(3)
+                            break
+                        else:
+                            self.logit(
+                                None,
+                                'Redpacket confirm button is not clickable')
+                            return False
+                    if s_btn_text == '领取':
+                        if ele_btn.wait.clickable(timeout=5) is not False:
+                            ele_btn.click(by_js=True)
+                            tab.wait(3)
 
                 # 写入互动记录
                 if s_dataid:
@@ -2252,6 +2255,25 @@ class BnSquare():
         return False
 
     def process_redpacket_post(self):
+        # 30-40 分钟内不重复执行
+        now_ts = datetime.now().astimezone()
+        if self.process_redpacket_post_last_ts is not None:
+            elapsed_seconds = (
+                now_ts - self.process_redpacket_post_last_ts).total_seconds()
+            interval_sec = self.process_redpacket_post_interval_sec or 1800
+            if elapsed_seconds < interval_sec:
+                next_ts = (
+                    self.process_redpacket_post_last_ts +
+                    timedelta(seconds=interval_sec)
+                )
+                s_msg = (
+                    f'距上次执行 {int(elapsed_seconds // 60)} 分钟，跳过'
+                    f'（需间隔 {interval_sec // 60} 分钟，'
+                    f'下次执行时间 {next_ts.strftime("%H:%M:%S")}）'
+                )
+                self.logit('process_redpacket_post', s_msg)
+                return
+
         tab = self.browser.latest_tab
         s_url = (
             'https://www.binance.com/zh-CN/square/search?s=%E7%BA%A2%E5%8C%85'
@@ -2261,6 +2283,9 @@ class BnSquare():
         tab.wait(3)
 
         self.process_recommend_post()
+
+        self.process_redpacket_post_last_ts = datetime.now().astimezone()
+        self.process_redpacket_post_interval_sec = random.randint(1800, 2400)
 
     def get_today_post_stats_by_project(self):
         """
