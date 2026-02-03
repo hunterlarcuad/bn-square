@@ -1721,6 +1721,7 @@ class BnSquare():
                     None, f'[{self.proj}] [{post_type}] Post successfully')
                 return True
 
+        self.click_home()
         return False
 
     def is_liked(self, ele_like):
@@ -2085,14 +2086,53 @@ class BnSquare():
             return True
         return False
 
-    def get_post_blks(self):
+    def get_search_post_blks(self):
         tab = self.browser.latest_tab
-        ele_blks = tab.eles(
+        ele_blk = tab.ele('@@tag()=div@@class=feed-layout-main', timeout=2)
+        if isinstance(ele_blk, NoneElement):
+            self.logit(None, 'class=feed-layout-main div is not found, return')
+            return []
+
+        ele_feed_blk = tab.ele(
+            '@@tag()=div@@class=feed-layout-main', timeout=2)
+        if isinstance(ele_feed_blk, NoneElement):
+            self.logit(None, 'class=feed-layout-main div is not found, return')
+            return []
+
+        ele_blks = ele_feed_blk.eles(
             '@@tag()=div@@class:FeedBuzzBaseView_FeedBuzzBaseViewRootBox',
             timeout=2)
+
         return ele_blks
 
-    def process_recommend_post(self):
+    def get_home_post_blks(self):
+        tab = self.browser.latest_tab
+        ele_blk = tab.ele('@@tag()=div@@id=feed-home-tabs', timeout=2)
+        if isinstance(ele_blk, NoneElement):
+            self.logit(None, 'id=feed-home-tabs div is not found, return')
+            return []
+
+        ele_feed_blk = tab.ele('@@tag()=div@@class:FeedList', timeout=2)
+        if isinstance(ele_feed_blk, NoneElement):
+            self.logit(None, 'class:FeedList div is not found, return')
+            return []
+
+        ele_blks = ele_feed_blk.eles(
+            '@@tag()=div@@class:FeedBuzzBaseView_FeedBuzzBaseViewRootBox',
+            timeout=2)
+
+        return ele_blks
+
+    def get_post_blks(self, s_post_type='home'):
+        if s_post_type == 'home':
+            return self.get_home_post_blks()
+        elif s_post_type == 'search':
+            return self.get_search_post_blks()
+        else:
+            self.logit(None, f'Invalid post type: {s_post_type}, return')
+            return []
+
+    def process_recommend_post(self, s_post_type='home'):
         # 如果今日回复和点赞数量已达上限，则不处理
         if self.is_interaction_limit_reached():
             return False
@@ -2100,7 +2140,7 @@ class BnSquare():
         self.display_new_posts()
 
         tab = self.browser.latest_tab
-        ele_blks = self.get_post_blks()
+        ele_blks = self.get_post_blks(s_post_type)
         n_posts = len(ele_blks)
         self.logit(None, f'Found {n_posts} posts')
 
@@ -2122,7 +2162,7 @@ class BnSquare():
 
         for i in range(n_posts):
             self.logit(None, f'Processing post {i+1}/{n_posts}')
-            ele_blks = self.get_post_blks()
+            ele_blks = self.get_post_blks(s_post_type)
             if i >= len(ele_blks):
                 break
             ele_blk = ele_blks[i]
@@ -2282,7 +2322,7 @@ class BnSquare():
         tab.wait.doc_loaded()
         tab.wait(3)
 
-        self.process_recommend_post()
+        self.process_recommend_post(s_post_type='search')
 
         self.process_redpacket_post_last_ts = datetime.now().astimezone()
         self.process_redpacket_post_interval_sec = random.randint(1800, 2400)
@@ -2454,7 +2494,7 @@ class BnSquare():
         self.square_post()
         self.process_redpacket_post()
         self.click_home()
-        self.process_recommend_post()
+        self.process_recommend_post(s_post_type='home')
 
         if self.args.manual_exit:
             s_msg = 'Manual Exit. Press any key to exit! ⚠️'  # noqa
