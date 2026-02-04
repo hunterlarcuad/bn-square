@@ -1830,12 +1830,40 @@ class BnSquare():
 
         return s_text
 
+    def check_tab_num(self):
+        tab = self.browser.latest_tab
+        if self.browser.tabs_count > 1:
+            tab.close()
+            tab.wait(1)
+            return True
+        return False
+
     def comment_redpacket(self, ele_blk, ele_footer_blk, s_dataid, s_content):
         tab = self.browser.latest_tab
 
-        tab.actions.move_to(ele_blk).click()
-        tab.wait.doc_loaded()
-        tab.wait(3)
+        ele_time = ele_blk.ele(
+            '@@tag()=div@@class:create-time', timeout=2)
+        if not isinstance(ele_time, NoneElement):
+            s_time = ele_time.text
+            tab.actions.move_to(ele_time, offset_x=100).click()
+            self.logit(None, f'Redpacket time: {s_time}')
+
+        # if ele_blk.wait.clickable(timeout=5) is not False:
+        #    ele_blk.click()
+        #    tab.wait.doc_loaded()
+        #    tab.wait(3)
+        #    self.logit(None, f'Redpacket time: {s_time}')
+        # else:
+        #    self.logit(None, 'Content block is not clickable')
+        #    return False
+
+        if self.check_tab_num():
+            self.logit(None, 'Tab number is greater than 1, return')
+            return False
+
+        # tab.actions.move_to(ele_blk).click()
+        # tab.wait.doc_loaded()
+        # tab.wait(3)
 
         s_text = ''
 
@@ -2325,7 +2353,7 @@ class BnSquare():
         self.process_recommend_post(s_post_type='search')
 
         self.process_redpacket_post_last_ts = datetime.now().astimezone()
-        self.process_redpacket_post_interval_sec = random.randint(1800, 2400)
+        self.process_redpacket_post_interval_sec = random.randint(600, 800)
 
     def get_today_post_stats_by_project(self):
         """
