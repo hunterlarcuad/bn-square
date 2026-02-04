@@ -2163,9 +2163,11 @@ class BnSquare():
             return []
 
     def process_recommend_post(self, s_post_type='home'):
-        # 如果今日回复和点赞数量已达上限，则不处理
-        if self.is_interaction_limit_reached():
-            return False
+
+        if s_post_type == 'home':
+            # 如果今日回复和点赞数量已达上限，则不处理
+            if self.is_interaction_limit_reached():
+                return False
 
         self.display_new_posts()
 
