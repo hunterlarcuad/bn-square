@@ -1847,6 +1847,8 @@ class BnSquare():
             s_time = ele_time.text
             tab.actions.move_to(ele_time, offset_x=100).click()
             self.logit(None, f'Redpacket time: {s_time}')
+            tab.wait.doc_loaded()
+            tab.wait(3)
 
         # if ele_blk.wait.clickable(timeout=5) is not False:
         #    ele_blk.click()
