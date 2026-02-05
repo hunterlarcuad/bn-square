@@ -2162,19 +2162,29 @@ class BnSquare():
             self.logit(None, f'Invalid post type: {s_post_type}, return')
             return []
 
-    def process_recommend_post(self, s_post_type='home'):
+    def process_recommend_post(self):
+        # 如果今日回复和点赞数量已达上限，则不处理
+        if self.is_interaction_limit_reached():
+            return False
 
-        if s_post_type == 'home':
-            # 如果今日回复和点赞数量已达上限，则不处理
-            if self.is_interaction_limit_reached():
-                return False
+        # 检查是否还在互动 sleep 期间
+        if self.is_in_interaction_sleep_period():
+            now_ts = datetime.now().astimezone()
+            remaining_seconds = (
+                self.interaction_sleep_seconds -
+                (now_ts - self.interaction_sleep_start_ts).total_seconds()
+            )
+            remaining_minutes = int(remaining_seconds // 60)
+            self.logit(
+                None,
+                f'在互动等待期内，剩余约 {remaining_minutes} 分钟，'
+                f'结束处理'
+            )
+            return False
 
-        self.display_new_posts()
-
-        tab = self.browser.latest_tab
-        ele_blks = self.get_post_blks(s_post_type)
+        ele_blks = self.get_post_blks('home')
         n_posts = len(ele_blks)
-        self.logit(None, f'Found {n_posts} posts')
+        self.logit(None, f'Found {n_posts} posts [home]')
 
         if n_posts == 0:
             # 如果互动等待期已经开始且已经超过30分钟，则点击首页
@@ -2189,30 +2199,25 @@ class BnSquare():
                         'Interaction sleep period exceeded 30 minutes, '
                         'clicked home button'
                     )
-            self.logit(None, 'No posts found, return')
+            self.logit(None, 'No posts found, return [home]')
             return False
 
+        self.display_new_posts()
+        self.process_post_list(s_post_type='home')
+
+    def process_post_list(self, s_post_type='home'):
+        tab = self.browser.latest_tab
+        ele_blks = self.get_post_blks(s_post_type)
+        n_posts = len(ele_blks)
+        self.logit(None, f'Found {n_posts} posts [{s_post_type}]')
+
         for i in range(n_posts):
-            self.logit(None, f'Processing post {i+1}/{n_posts}')
+            self.logit(
+                None, f'Processing post {i+1}/{n_posts} [{s_post_type}]')
             ele_blks = self.get_post_blks(s_post_type)
             if i >= len(ele_blks):
                 break
             ele_blk = ele_blks[i]
-
-            # 检查是否还在互动 sleep 期间
-            if self.is_in_interaction_sleep_period():
-                now_ts = datetime.now().astimezone()
-                remaining_seconds = (
-                    self.interaction_sleep_seconds -
-                    (now_ts - self.interaction_sleep_start_ts).total_seconds()
-                )
-                remaining_minutes = int(remaining_seconds // 60)
-                self.logit(
-                    None,
-                    f'在互动等待期内，剩余约 {remaining_minutes} 分钟，'
-                    f'结束处理'
-                )
-                return False
 
             s_dataid = ''
             s_content = ''
@@ -2232,9 +2237,11 @@ class BnSquare():
                 self.logit(None, 'dataid is empty, skip')
                 continue
 
+            b_do_comment = True
             # 检查是否已经评论过（包括 comment、claim_redpacket、miss_redpacket）
             if self.is_interacted(s_dataid, 'comment'):
                 self.logit(None, f'Already commented on {s_dataid}, skip')
+                b_do_comment = False
             elif self.is_interacted(s_dataid, 'claim_redpacket'):
                 self.logit(
                     None, f'Already claimed redpacket on {s_dataid}, skip')
@@ -2250,45 +2257,39 @@ class BnSquare():
                 if daily_max_comment > 0:
                     interaction_stats = self.get_today_interaction_stats()
                     if interaction_stats['comment'] >= daily_max_comment:
-                        self.logit(
-                            None,
-                            f'当日回复数量已达上限 '
-                            f'({interaction_stats["comment"]}/'
-                            f'{daily_max_comment})，跳过回复'
-                        )
-                        return True
-                    else:
-                        ele_footer_blk = ele_blk.ele(
-                            '@@tag()=div@@class:footer-function-grid',
-                            timeout=2)
-                        if not isinstance(ele_footer_blk, NoneElement):
-                            b_ret_comment = self.comment_post(
-                                ele_blk, ele_footer_blk, s_dataid, s_content
+                        if s_post_type == 'home':
+                            self.logit(
+                                None,
+                                f'当日回复数量已达上限 '
+                                f'({interaction_stats["comment"]}/'
+                                f'{daily_max_comment})，跳过回复'
                             )
-                            if b_ret_comment is False:
-                                b_ret_redpacket = self.comment_redpacket(
-                                    ele_blk, ele_footer_blk, s_dataid,
-                                    s_content
-                                )
-                                self.click_back_arrow()
-                                if b_ret_redpacket is False:
-                                    continue
-                                else:
-                                    self.logit(
-                                        None, 'Redpacket claimed successfully')
-                                    continue
-                            else:
-                                self.logit(None, 'Comment posted')
-                else:
-                    ele_footer_blk = ele_blk.ele(
-                        '@@tag()=div@@class:footer-function-grid',
-                        timeout=2)
-                    if not isinstance(ele_footer_blk, NoneElement):
-                        if self.comment_post(
-                            ele_blk, ele_footer_blk, s_dataid, s_content
-                        ) is False:
-                            continue
+                            b_do_comment = False
 
+            if b_do_comment:
+                ele_footer_blk = ele_blk.ele(
+                    '@@tag()=div@@class:footer-function-grid',
+                    timeout=2)
+                if not isinstance(ele_footer_blk, NoneElement):
+                    b_ret_comment = self.comment_post(
+                        ele_blk, ele_footer_blk, s_dataid, s_content
+                    )
+                    if b_ret_comment is False:
+                        b_ret_redpacket = self.comment_redpacket(
+                            ele_blk, ele_footer_blk, s_dataid,
+                            s_content
+                        )
+                        self.click_back_arrow()
+                        if b_ret_redpacket is False:
+                            continue
+                        else:
+                            self.logit(
+                                None, 'Redpacket claimed successfully')
+                            continue
+                    else:
+                        self.logit(None, 'Comment posted')
+
+            b_do_like = True
             # 检查是否已经点赞过
             if self.is_interacted(s_dataid, 'like'):
                 self.logit(None, f'Already liked {s_dataid}, skip')
@@ -2304,25 +2305,18 @@ class BnSquare():
                             f'({interaction_stats["like"]}/{daily_max_like})，'
                             f'跳过点赞'
                         )
-                        return True
-                    else:
-                        ele_footer_blk = ele_blk.ele(
-                            '@@tag()=div@@class:footer-function-grid',
-                            timeout=2)
-                        if not isinstance(ele_footer_blk, NoneElement):
-                            if self.like_post(
-                                ele_footer_blk, s_dataid
-                            ) is False:
-                                continue
-                            tab.wait(3)
-                else:
-                    ele_footer_blk = ele_blk.ele(
-                        '@@tag()=div@@class:footer-function-grid',
-                        timeout=2)
-                    if not isinstance(ele_footer_blk, NoneElement):
-                        if self.like_post(ele_footer_blk, s_dataid) is False:
-                            continue
-                        tab.wait(3)
+                        b_do_like = False
+
+            if b_do_like:
+                ele_footer_blk = ele_blk.ele(
+                    '@@tag()=div@@class:footer-function-grid',
+                    timeout=2)
+                if not isinstance(ele_footer_blk, NoneElement):
+                    if self.like_post(
+                        ele_footer_blk, s_dataid
+                    ) is False:
+                        continue
+                    tab.wait(3)
 
         return False
 
@@ -2354,7 +2348,7 @@ class BnSquare():
         tab.wait.doc_loaded()
         tab.wait(3)
 
-        self.process_recommend_post(s_post_type='search')
+        self.process_post_list(s_post_type='search')
 
         self.process_redpacket_post_last_ts = datetime.now().astimezone()
         self.process_redpacket_post_interval_sec = random.randint(600, 800)
@@ -2526,7 +2520,7 @@ class BnSquare():
         self.square_post()
         self.process_redpacket_post()
         self.click_home()
-        self.process_recommend_post(s_post_type='home')
+        self.process_recommend_post()
 
         if self.args.manual_exit:
             s_msg = 'Manual Exit. Press any key to exit! ⚠️'  # noqa
