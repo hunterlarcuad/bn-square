@@ -1924,7 +1924,8 @@ class BnSquare():
                 tab.wait(2)
 
                 # 关注并回复 弹窗
-                self.follow_and_reply()
+                if self.follow_and_reply(post_type='red_packet') is False:
+                    return False
 
                 s_amount = ''
 
@@ -1997,7 +1998,8 @@ class BnSquare():
                         tab.wait(2)
 
                         # 关注并回复 弹窗
-                        self.follow_and_reply()
+                        if self.follow_and_reply(post_type='comment') is False:
+                            return False
 
                         # 写入互动记录
                         if s_dataid:
@@ -2010,7 +2012,11 @@ class BnSquare():
 
         return False
 
-    def follow_and_reply(self):
+    def follow_and_reply(self, post_type):
+        """
+        参数:
+            post_type: 帖子类型，'red_packet' 或 'comment'
+        """
         # 关注并回复 弹窗
         tab = self.browser.latest_tab
         ele_window = tab.ele(
@@ -2021,9 +2027,39 @@ class BnSquare():
                 '@@tag()=button'
                 '@@class:confirm-modal-confirm',
                 timeout=2)
+            s_text = ele_btn.text
+            self.logit(None, f'Follow and reply button: {s_text}')
+            if '关注' in s_text:
+                if (post_type == 'red_packet' and
+                        not self.args.auto_follow_red_packet):
+                    self.logit(
+                        None,
+                        'Auto follow red packet is disabled, return False')
+                    self.click_cancel_button()
+                    return False
+                elif (post_type == 'comment' and
+                      not self.args.auto_follow_comment):
+                    self.logit(
+                        None, 'Auto follow is disabled, return False')
+                    self.click_cancel_button()
+                    return False
             if not isinstance(ele_btn, NoneElement):
                 ele_btn.click(by_js=True)
                 tab.wait(2)
+        return True
+
+    def click_cancel_button(self):
+        tab = self.browser.latest_tab
+        ele_btn = tab.ele(
+            '@@tag()=button'
+            '@@class:confirm-modal-cancel',
+            timeout=2)
+        if not isinstance(ele_btn, NoneElement):
+            ele_btn.click(by_js=True)
+            tab.wait(2)
+            self.logit(None, 'Cancel button clicked')
+            return True
+        return False
 
     def is_interaction_limit_reached(self):
         """
@@ -2518,7 +2554,8 @@ class BnSquare():
         self.logit(None, '##############################')
 
         self.square_post()
-        self.process_redpacket_post()
+        if self.args.search_red_packet:
+            self.process_redpacket_post()
         self.click_home()
         self.process_recommend_post()
 
@@ -2674,6 +2711,18 @@ if __name__ == '__main__':
         '--daily_max_comment', required=False, type=int, default=100,
         help='Daily maximum comment/reply count '
         '(0 means no limit, default: 100)'
+    )
+    parser.add_argument(
+        '--search_red_packet', required=False, action='store_true',
+        help='Search red packet'
+    )
+    parser.add_argument(
+        '--auto_follow_red_packet', required=False, action='store_true',
+        help='Auto follow when claim red packet'
+    )
+    parser.add_argument(
+        '--auto_follow_comment', required=False, action='store_true',
+        help='Auto follow when reply must-follow post'
     )
     parser.add_argument(
         '--debug', required=False, action='store_true',
