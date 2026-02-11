@@ -2681,13 +2681,23 @@ class BnSquare():
 
     def check_login(self):
         tab = self.browser.latest_tab
-        ele_btn = tab.ele(
-            '@@tag()=button@@class:bn-button@@text():登录', timeout=2)
-        if not isinstance(ele_btn, NoneElement):
-            s_msg = '[{self.args.s_profile}] 当前未登录，请登录'
-            ding_msg(s_msg, DEF_DING_TOKEN, msgtype='text')
-            return False
-        return True
+        tab.wait.doc_loaded()
+        n_max_wait = 60
+        i = 0
+        while i < n_max_wait:
+            i += 1
+            ele_btn = tab.ele(
+                '@@tag()=button@@class:bn-button@@text():登录', timeout=2)
+            if not isinstance(ele_btn, NoneElement):
+                self.logit(
+                    None, f'[{self.args.s_profile}] 检查登录 {i}/{n_max_wait}')  # noqa
+                tab.wait(1)
+            else:
+                return True
+
+        s_msg = f'[{self.args.s_profile}] 当前未登录，请登录'
+        ding_msg(s_msg, DEF_DING_TOKEN, msgtype='text')
+        return False
 
     def square_run(self):
         if args.debug:
