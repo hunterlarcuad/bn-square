@@ -73,6 +73,16 @@ class BnSquare():
         ]
         self.DEF_HEADER_INTERACTION = ','.join(self.lst_header_interaction)
 
+        self.lst_header_statistics = [
+            'section',
+            'key',
+            'v1',
+            'v2',
+            'v3',
+            'v4',
+        ]
+        self.DEF_HEADER_STATISTICS = ','.join(self.lst_header_statistics)
+
         self.proj = None
 
         self.n_like = 0
@@ -188,6 +198,9 @@ class BnSquare():
         )
         self.file_interaction = (
             f'{DEF_PATH_DATA_STATUS}/bn_square/square_interaction.csv'
+        )
+        self.file_statistics = (
+            f'{DEF_PATH_DATA_STATUS}/bn_square/square_statistics.csv'
         )
 
     def __del__(self):
@@ -2520,10 +2533,66 @@ class BnSquare():
 
         return stats
 
-    def square_run(self):
-        if args.debug:
-            pdb.set_trace()
+    def get_interaction_stats_by_hour_from_log(self):
+        """
+        按日志里出现的小时统计点赞、回复、领红包数量（输出按东八区小时）
+        只返回日志里最新的 12 个小时。
 
+        返回:
+            list: 每项为 (hour_label, {'like': n, 'comment': n,
+                  'claim_redpacket': n})；hour_label 为东八区 "MM-DD HH:00"，
+                  按时间从早到晚，最多 12 条
+        """
+        if not os.path.exists(self.file_interaction):
+            return []
+
+        # 按日志中的小时聚合，小时标签用 TZ_OFFSET 与日志一致
+        buckets = {}
+
+        try:
+            with open(self.file_interaction, 'r') as fp:
+                lines = fp.readlines()
+        except Exception:  # noqa
+            return []
+
+        for line in lines:
+            line = line.strip()
+            if not line or line.startswith('update'):
+                continue
+            parts = line.split(',', 3)
+            if len(parts) < 4:
+                continue
+            s_ts, _, s_op_type, _ = parts
+
+            if s_op_type not in ['comment', 'like', 'claim_redpacket']:
+                continue
+
+            try:
+                interaction_ts = datetime.strptime(
+                    s_ts, '%Y-%m-%dT%H:%M:%S%z'
+                )
+                # 输出按东八区整点小时，格式 MM-DD HH:00
+                ts_sec = interaction_ts.timestamp()
+                s_ts_fmt = format_ts(ts_sec, 5, 8)
+                hour_label = s_ts_fmt[5:10] + ' ' + s_ts_fmt[11:13] + ':00'
+                if hour_label not in buckets:
+                    buckets[hour_label] = {
+                        'like': 0, 'comment': 0, 'claim_redpacket': 0
+                    }
+                if s_op_type == 'comment':
+                    buckets[hour_label]['comment'] += 1
+                elif s_op_type == 'like':
+                    buckets[hour_label]['like'] += 1
+                elif s_op_type == 'claim_redpacket':
+                    buckets[hour_label]['claim_redpacket'] += 1
+            except Exception:  # noqa
+                continue
+
+        # 按时间从早到晚排序，只取最新的 12 个小时
+        result = sorted(buckets.items(), key=lambda x: x[0])
+        return result[-12:]
+
+    def stat_data(self):
         # 统计今日分项目长文和短文发送总数
         post_stats = self.get_today_post_stats_by_project()
         if post_stats:
@@ -2552,6 +2621,82 @@ class BnSquare():
             f'{self.args.interaction_limit}]'
         )
         self.logit(None, '##############################')
+
+        # 按日志里的小时统计点赞、回复、领红包数量
+        hourly = self.get_interaction_stats_by_hour_from_log()
+        if hourly:
+            self.logit(None, '按日志小时互动:')
+            for hour_label, counts in hourly:
+                self.logit(
+                    None,
+                    f'{hour_label} '
+                    f'点赞 {counts["like"]}, '
+                    f'回复 {counts["comment"]}, '
+                    f'领红包 {counts["claim_redpacket"]}'
+                )
+
+        # 今日统计、今日互动、按小时 写入 file_statistics
+        today_str = format_ts(time.time(), style=1, tz_offset=TZ_OFFSET)
+        dir_stat = os.path.dirname(self.file_statistics)
+        if dir_stat and not os.path.exists(dir_stat):
+            os.makedirs(dir_stat)
+        with open(self.file_statistics, 'w') as fp:
+            fp.write('# 表头: section, key, v1, v2, v3, v4\n')
+            fp.write(
+                '# section=today_interaction: key=日期, '
+                'v1=回复, v2=点赞, v3=领红包, v4=错过红包\n'
+            )
+            fp.write(
+                '# section=today_post: key=项目, v1=短文数, v2=长文数\n'
+            )
+            fp.write(
+                '# section=hourly: key=小时(MM-DD HH:00), '
+                'v1=点赞, v2=回复, v3=领红包\n'
+            )
+            fp.write(self.DEF_HEADER_STATISTICS + '\n')
+            fp.write(
+                f'today_interaction,{today_str},'
+                f'{interaction_stats["comment"]},'
+                f'{interaction_stats["like"]},'
+                f'{interaction_stats["claim_redpacket"]},'
+                f'{interaction_stats["miss_redpacket"]}\n'
+            )
+            # 今日统计: section=today_post, key=proj, v1=post_short, v2=post_long
+            if post_stats:
+                for proj, stats in post_stats.items():
+                    fp.write(
+                        f'today_post,{proj},'
+                        f'{stats["post_short"]},{stats["post_long"]},,\n'
+                    )
+            # 按小时: section=hourly, key=hour_label, v1=like, v2=comment,
+            # v3=claim_redpacket
+            if hourly:
+                for hour_label, counts in hourly:
+                    fp.write(
+                        f'hourly,{hour_label},'
+                        f'{counts["like"]},{counts["comment"]},'
+                        f'{counts["claim_redpacket"]},\n'
+                    )
+        self.logit(None, '##############################')
+
+    def check_login(self):
+        tab = self.browser.latest_tab
+        ele_btn = tab.ele(
+            '@@tag()=button@@class:bn-button@@text():登录', timeout=2)
+        if not isinstance(ele_btn, NoneElement):
+            s_msg = '[{self.args.s_profile}] 当前未登录，请登录'
+            ding_msg(s_msg, DEF_DING_TOKEN, msgtype='text')
+            return False
+        return True
+
+    def square_run(self):
+        if args.debug:
+            pdb.set_trace()
+
+        self.stat_data()
+
+        if self.check_login() is False:
+            return False
 
         self.square_post()
         if self.args.search_red_packet:
@@ -2594,12 +2739,19 @@ def main(args):
         logger.info(f'Directory {DEF_PATH_USER_DATA} is deleted')  # noqa
 
     s_profile = args.profile
+    args.s_profile = s_profile
+
     inst_square = BnSquare()
     inst_square.set_args(args)
     inst_square.inst_dp.plugin_yescapcha = False
     inst_square.inst_dp.plugin_capmonster = False
     inst_square.inst_dp.plugin_okx = False
     inst_square.inst_dp.set_args(args)
+
+    if args.only_statistics:
+        inst_square.stat_data()
+        return
+
     inst_square.browser = inst_square.inst_dp.get_browser(args.profile)
 
     tab = inst_square.browser.latest_tab
@@ -2723,6 +2875,10 @@ if __name__ == '__main__':
     parser.add_argument(
         '--auto_follow_comment', required=False, action='store_true',
         help='Auto follow when reply must-follow post'
+    )
+    parser.add_argument(
+        '--only_statistics', required=False, action='store_true',
+        help='Only statistics mode'
     )
     parser.add_argument(
         '--debug', required=False, action='store_true',
