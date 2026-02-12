@@ -2316,27 +2316,30 @@ class BnSquare():
                             b_do_comment = False
 
             if b_do_comment:
-                ele_footer_blk = ele_blk.ele(
-                    '@@tag()=div@@class:footer-function-grid',
-                    timeout=2)
-                if not isinstance(ele_footer_blk, NoneElement):
-                    b_ret_comment = self.comment_post(
-                        ele_blk, ele_footer_blk, s_dataid, s_content
-                    )
-                    if b_ret_comment is False:
-                        b_ret_redpacket = self.comment_redpacket(
-                            ele_blk, ele_footer_blk, s_dataid,
-                            s_content
+                try:
+                    ele_footer_blk = ele_blk.ele(
+                        '@@tag()=div@@class:footer-function-grid',
+                        timeout=2)
+                    if not isinstance(ele_footer_blk, NoneElement):
+                        b_ret_comment = self.comment_post(
+                            ele_blk, ele_footer_blk, s_dataid, s_content
                         )
-                        self.click_back_arrow()
-                        if b_ret_redpacket is False:
-                            continue
+                        if b_ret_comment is False:
+                            b_ret_redpacket = self.comment_redpacket(
+                                ele_blk, ele_footer_blk, s_dataid,
+                                s_content
+                            )
+                            self.click_back_arrow()
+                            if b_ret_redpacket is False:
+                                continue
+                            else:
+                                self.logit(
+                                    None, 'Redpacket claimed successfully')
+                                continue
                         else:
-                            self.logit(
-                                None, 'Redpacket claimed successfully')
-                            continue
-                    else:
-                        self.logit(None, 'Comment posted')
+                            self.logit(None, 'Comment posted')
+                except Exception as e:  # noqa
+                    self.logit(None, f'Error processing comment: {e}')
 
             b_do_like = True
             # 检查是否已经点赞过
@@ -2357,15 +2360,18 @@ class BnSquare():
                         b_do_like = False
 
             if b_do_like:
-                ele_footer_blk = ele_blk.ele(
-                    '@@tag()=div@@class:footer-function-grid',
-                    timeout=2)
-                if not isinstance(ele_footer_blk, NoneElement):
-                    if self.like_post(
-                        ele_footer_blk, s_dataid
-                    ) is False:
-                        continue
-                    tab.wait(3)
+                try:
+                    ele_footer_blk = ele_blk.ele(
+                        '@@tag()=div@@class:footer-function-grid',
+                        timeout=2)
+                    if not isinstance(ele_footer_blk, NoneElement):
+                        if self.like_post(
+                            ele_footer_blk, s_dataid
+                        ) is False:
+                            continue
+                        tab.wait(3)
+                except Exception as e:  # noqa
+                    self.logit(None, f'Error processing like: {e}')
 
         return False
 
