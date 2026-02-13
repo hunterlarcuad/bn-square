@@ -447,8 +447,13 @@ class BnSquare():
         lst_text = []
 
         # 定义所有标签的模式（按优先级排序）
-        # 先匹配长的模式，避免短模式误匹配
-        tag_pattern = r'\$[A-Z0-9]+|@\w+|#\w+'
+        # $ 代币：仅匹配 $ 开头，且前面不是 #，避免把 #Fogo 误当成 $ 代币
+        # @ 提及、# 话题：支持全角 ＠＃
+        tag_pattern = (
+            r'(?<!#)\$[A-Za-z0-9]+|'  # $ticker
+            r'[@＠]\w+|'              # @mention (halfwidth/fullwidth)
+            r'[#＃]\w+'               # #hashtag (halfwidth/fullwidth)
+        )
 
         # 找到所有标签的位置
         matches = list(re.finditer(tag_pattern, s_text))
@@ -551,6 +556,18 @@ class BnSquare():
                 if has_leading_newline:
                     after_text_cleaned = '\n' + after_text_cleaned
                 lst_text.append(after_text_cleaned)
+
+        # 校验：lst_text 拼接后应与 s_text 一致（允许空白规范化差异）
+        joined = ''.join(lst_text)
+        norm_joined = re.sub(r'\s+', ' ', joined).strip()
+        norm_s = re.sub(r'\s+', ' ', s_text).strip()
+        if norm_joined != norm_s:
+            self.logit(None, f'norm_s: {norm_s}')
+            self.logit(None, f'norm_joined: {norm_joined}')
+            self.logit(
+                None,
+                'parse_post_text 校验失败: lst_text 拼接与 s_text 不一致'
+            )
 
         return lst_text
 
@@ -1031,10 +1048,11 @@ class BnSquare():
         """
         规范化推文中的标签：
         根据当前项目配置，规范化推文中的标签（token、at、tag）
-        1. 如果包含 token 名称但前面没有 $，则替换为 $token
-        2. 如果 $token 前后没有空格，则增加空格
-        3. 如果不包含 $token，则在最后增加 ' $token'
-        4. 对 @ 和 # 标签做类似处理
+        1. 不能连续出现多个 @#$，若有则只保留最后一个（如 @#$FOGO -> $FOGO）
+        2. 如果包含 token 名称但前面没有 $，则替换为 $token
+        3. 如果 $token 前后没有空格，则增加空格
+        4. 如果不包含 $token，则在最后增加 ' $token'
+        5. 对 @ 和 # 标签做类似处理
 
         参数:
             s_text: 原始文本
@@ -1044,6 +1062,13 @@ class BnSquare():
         """
         if not s_text:
             return s_text
+
+        # 连续多个 @#$（含全角＠＃）只保留最后一个
+        s_text = re.sub(
+            r'[@#$＠＃]{2,}',
+            lambda m: m.group(0)[-1],
+            s_text
+        )
 
         # 获取当前项目的配置
         if not self.proj:
@@ -1074,9 +1099,10 @@ class BnSquare():
             token_name = token[1:]  # 去掉 $ 符号，获取 token 名称
             token_pattern = re.escape(token)
 
-            # 1. 如果包含 token 名称但前面没有 $，则替换为 $token（不区分大小写）
+            # 1. token 名称前无 $、#、@ 时替换为 $token
+            # （避免 #Fogo、@fogo 被改成 #$FOGO、@ $FOGO），不区分大小写
             s_text = re.sub(
-                rf'(?i)(?<!\$)\b{re.escape(token_name)}\b',
+                rf'(?i)(?<!\$)(?<!#)(?<!@)\b{re.escape(token_name)}\b',
                 token,
                 s_text
             )
@@ -1397,8 +1423,15 @@ class BnSquare():
         tab.wait(3)
         tab.wait.doc_loaded()
 
+        s_long_post_label = d_proj.get('long_post_label')
+        if not s_long_post_label:
+            self.logit(
+                None,
+                f'Error: Long post label not found for project {self.proj}')
+            s_long_post_label = '在币安广场使用文章编辑器'
+
         ele_blk = tab.ele(
-            '@@tag()=div@@class:flex items-start justify-between@@text():在币安广场使用文章编辑器', timeout=2)  # noqa
+            f'@@tag()=div@@class:flex items-start justify-between@@text():{s_long_post_label}', timeout=2)  # noqa
         if not isinstance(ele_blk, NoneElement):
             ele_btn = ele_blk.ele(
                 '@@tag()=button@@class:bn-button', timeout=2)
