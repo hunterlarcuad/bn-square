@@ -2734,34 +2734,39 @@ class BnSquare():
                 if ele_btn.wait.clickable(timeout=5) is not False:
                     ele_btn.click(by_js=True)
                     tab.wait(2)
-                    ele_div_qrcode = tab.ele(
-                        '.bn-tooltips-wrap qrcode-login-popup', timeout=2)
-                    if not isinstance(ele_div_qrcode, NoneElement):
-                        ele_div_qrcode.click()
-                        # show qrcode
-                        self.logit(None, 'show qrcode success')
-                        tab.wait(2)
-                        if self.send_qrcode() is True:
-                            continue
+                    continue
 
-                    ele_div_refresh = tab.ele(
-                        '@@tag()=div@@aria-label=刷新二维码', timeout=2)
-                    if not isinstance(ele_div_refresh, NoneElement):
-                        ele_div_refresh.click()
-                        # refresh qrcode
-                        self.logit(None, 'refresh qrcode success')
-                        tab.wait(2)
-
-                    ele_div_refresh = tab.ele(
-                        '@@tag()=div@@aria-label=登录失败', timeout=2)
-                    if not isinstance(ele_div_refresh, NoneElement):
-                        ele_div_refresh.click()
-                        # refresh qrcode
-                        self.logit(None, 'refresh qrcode success')
-                        tab.wait(2)
-
+            ele_div = tab.ele(
+                '@@tag()=div@@class:card-page-title@@text():登录', timeout=2)
+            if not isinstance(ele_div, NoneElement):
+                ele_div_qrcode = tab.ele(
+                    '.bn-tooltips-wrap qrcode-login-popup', timeout=2)
+                if not isinstance(ele_div_qrcode, NoneElement):
+                    ele_div_qrcode.click()
+                    # show qrcode
+                    self.logit(None, 'show qrcode success')
+                    tab.wait(2)
                     if self.send_qrcode() is True:
                         continue
+
+                ele_div_refresh = tab.ele(
+                    '@@tag()=div@@aria-label=刷新二维码', timeout=2)
+                if not isinstance(ele_div_refresh, NoneElement):
+                    ele_div_refresh.click()
+                    # refresh qrcode
+                    self.logit(None, 'refresh qrcode success')
+                    tab.wait(2)
+
+                ele_div_refresh = tab.ele(
+                    '@@tag()=div@@aria-label=登录失败', timeout=2)
+                if not isinstance(ele_div_refresh, NoneElement):
+                    ele_div_refresh.click()
+                    # refresh qrcode
+                    self.logit(None, 'refresh qrcode success')
+                    tab.wait(2)
+
+                if self.send_qrcode() is True:
+                    continue
 
             else:
                 return True
@@ -2781,8 +2786,8 @@ class BnSquare():
                 'title': f'[{self.args.s_profile}] 需要扫码登录',
                 'base64': s_base64
             }, DEF_DING_TOKEN, msgtype='image')
-            self.logit(None, 'QR Code status')
-            tab.wait(2)
+            self.logit(None, 'QR Code send to dingding, wait 120 seconds...')
+            tab.wait(120)
             return True
         return False
 
