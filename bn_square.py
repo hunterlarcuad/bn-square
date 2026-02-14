@@ -2721,7 +2721,7 @@ class BnSquare():
     def check_login(self):
         tab = self.browser.latest_tab
         tab.wait.doc_loaded()
-        n_max_wait = 60
+        n_max_wait = 60*5
         i = 0
         while i < n_max_wait:
             i += 1
@@ -2731,11 +2731,59 @@ class BnSquare():
                 self.logit(
                     None, f'[{self.args.s_profile}] 检查登录 {i}/{n_max_wait}')  # noqa
                 tab.wait(1)
+                if ele_btn.wait.clickable(timeout=5) is not False:
+                    ele_btn.click(by_js=True)
+                    tab.wait(2)
+                    ele_div_qrcode = tab.ele(
+                        '.bn-tooltips-wrap qrcode-login-popup', timeout=2)
+                    if not isinstance(ele_div_qrcode, NoneElement):
+                        ele_div_qrcode.click()
+                        # show qrcode
+                        self.logit(None, 'show qrcode success')
+                        tab.wait(2)
+                        if self.send_qrcode() is True:
+                            continue
+
+                    ele_div_refresh = tab.ele(
+                        '@@tag()=div@@aria-label=刷新二维码', timeout=2)
+                    if not isinstance(ele_div_refresh, NoneElement):
+                        ele_div_refresh.click()
+                        # refresh qrcode
+                        self.logit(None, 'refresh qrcode success')
+                        tab.wait(2)
+
+                    ele_div_refresh = tab.ele(
+                        '@@tag()=div@@aria-label=登录失败', timeout=2)
+                    if not isinstance(ele_div_refresh, NoneElement):
+                        ele_div_refresh.click()
+                        # refresh qrcode
+                        self.logit(None, 'refresh qrcode success')
+                        tab.wait(2)
+
+                    if self.send_qrcode() is True:
+                        continue
+
             else:
                 return True
 
         s_msg = f'[{self.args.s_profile}] 当前未登录，请登录'
         ding_msg(s_msg, DEF_DING_TOKEN, msgtype='text')
+        return False
+
+    def send_qrcode(self):
+        tab = self.browser.latest_tab
+        ele_div_qrcode = tab.ele(
+            '@@tag()=div@@aria-label=QR Code status', timeout=2)
+        if not isinstance(ele_div_qrcode, NoneElement):
+            s_base64 = ele_div_qrcode.get_screenshot(
+                as_base64=True)
+            ding_msg({
+                'title': f'[{self.args.s_profile}] 需要扫码登录',
+                'base64': s_base64
+            }, DEF_DING_TOKEN, msgtype='image')
+            self.logit(None, 'QR Code status')
+            tab.wait(2)
+            return True
         return False
 
     def square_run(self):

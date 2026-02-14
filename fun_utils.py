@@ -110,6 +110,7 @@ def get_host_ip():
 
 def ding_msg(content, access_token, msgtype="markdown"):
     lst_phone = []
+    msgtype = (msgtype or "markdown").strip().lower()
 
     s_ip = get_host_ip()
     if "markdown" == msgtype:
@@ -121,21 +122,53 @@ def ding_msg(content, access_token, msgtype="markdown"):
                 ip=s_ip
             )
         )
-    else:
-        content += (
-            "\nUpdate:{time}"
-            "\nFrom:{ip}".format
-            (
-                time=conv_time(time.time(), 5),
-                ip=s_ip
+        payload = content
+    elif msgtype == "image":
+        # 钉钉 image 类型仅支持 picURL；仅有 base64 时改为用 markdown 类型发送 data URL
+        pic_url = None
+        if isinstance(content, dict):
+            pic_url = content.get("picURL") or content.get("pic_url")
+        if pic_url:
+            payload = {"picURL": pic_url}
+        elif (
+            isinstance(content, dict)
+            and ("base64" in content or "content" in content)
+        ):
+            b64 = content.get("base64") or content.get("content")
+            if isinstance(b64, bytes):
+                b64 = b64.decode("utf-8")
+            if isinstance(b64, str) and b64.startswith("data:"):
+                data_url = b64
+            else:
+                data_url = "data:image/png;base64," + (b64 or "")
+            title = content.get("title", "图片")
+            # 钉钉可能不渲染 data URL；base64 过长时可能超单条消息限制，可考虑压缩或改用 picURL
+            payload = {
+                "title": title,
+                "text": f"![{title}]({data_url})"
+            }
+            msgtype = "markdown"
+        else:
+            payload = (
+                content if isinstance(content, dict) else {"content": content}
             )
+    else:
+        # 文本等：禁止对 dict 做 +=，避免 TypeError
+        suffix = (
+            "\nUpdate:{time}"
+            "\nFrom:{ip}".format(time=conv_time(time.time(), 5), ip=s_ip)
         )
-        content = {
-            "content": content
-        }
+        if isinstance(content, str):
+            content = content + suffix
+        elif isinstance(content, dict):
+            content = (content.get("content", "")
+                       or content.get("text", "")) + suffix
+        else:
+            content = str(content) + suffix
+        payload = {"content": content}
     data = {
         "msgtype": msgtype,
-        msgtype: content,
+        msgtype: payload,
         "at": {
             "atMobiles": lst_phone,
             "isAtAll": False
@@ -419,15 +452,16 @@ def load_advertising_urls(csv_file):
     if not os.path.exists(csv_file):
         print(f'CSV file not found: {csv_file}')
         return []
-    
+
     # 获取今天的日期
     today = format_ts(time.time(), style=1, tz_offset=TZ_OFFSET)
-    yesterday = format_ts(time.time() - 24 * 60 * 60, style=1, tz_offset=TZ_OFFSET)
-    
+    yesterday = format_ts(time.time() - 24 * 60 * 60,
+                          style=1, tz_offset=TZ_OFFSET)
+
     try:
         # 使用 load_file 函数加载 CSV 数据
         dic_data = load_file(csv_file, idx_key=2)
-        
+
         # 提取 URL（CSV 格式：date,project,url）
         for key, fields in dic_data.items():
             if len(fields) >= 3:
@@ -450,15 +484,19 @@ def load_advertising_urls(csv_file):
             lst_ret = lst_urls_today
         elif lst_urls_yesterday:
             print(f'No URLs for today, loaded {len(lst_urls_yesterday)} '
-                                'URLs for yesterday')
+                  'URLs for yesterday')
             lst_ret = lst_urls_yesterday
         elif lst_urls_all:
-            print(f'No URLs for today and yesterday, loaded {len(lst_urls_all)} '
-                                'total URLs from CSV')
+            print(
+                f'No URLs for today and yesterday, loaded {len(lst_urls_all)} '
+                'total URLs from CSV'
+            )
             lst_ret = lst_urls_yesterday
         else:
-            print(f'No URLs for today and yesterday, loaded {len(lst_urls_all)} '
-                                'total URLs from CSV')
+            print(
+                f'No URLs for today and yesterday, loaded {len(lst_urls_all)} '
+                'total URLs from CSV'
+            )
             lst_ret = lst_urls_all
 
     except Exception as e:
@@ -486,11 +524,11 @@ def load_ad_user(csv_file):
     if not os.path.exists(csv_file):
         print(f'CSV file not found: {csv_file}')
         return lst_ad_user
-    
+
     try:
         # 使用 load_file 函数加载 CSV 数据
         dic_data = load_file(csv_file, idx_key=0)
-        
+
         # 提取 URL（CSV 格式：date,project,url）
         for key, fields in dic_data.items():
             if len(fields) >= 2:
@@ -529,11 +567,11 @@ def load_to_set(csv_file, set_user):
     if not os.path.exists(csv_file):
         print(f'CSV file not found: {csv_file}')
         return set_user
-    
+
     try:
         # 使用 load_file 函数加载 CSV 数据
         dic_data = load_file(csv_file, idx_key=0)
-        
+
         # 提取 URL（CSV 格式：date,project,url）
         for key, fields in dic_data.items():
             if len(fields) >= 1:
