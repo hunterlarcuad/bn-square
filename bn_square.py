@@ -2769,6 +2769,7 @@ class BnSquare():
                     continue
 
             else:
+                self.browser.close_tabs(tab, others=True)
                 return True
 
         s_msg = f'[{self.args.s_profile}] 当前未登录，请登录'
