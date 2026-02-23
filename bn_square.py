@@ -2736,8 +2736,11 @@ class BnSquare():
                     tab.wait(2)
                     continue
 
-            ele_div = tab.ele(
-                '@@tag()=div@@class:card-page-title@@text():登录', timeout=2)
+            lst_path = [
+                '@@tag()=div@@class:card-page-title@@text():登录',
+                '@@tag()=div@@class:card-page-title@@text():Log in'
+            ]
+            ele_div = self.inst_dp.get_ele_btn(tab, lst_path)
             if not isinstance(ele_div, NoneElement):
                 ele_div_qrcode = tab.ele(
                     '.bn-tooltips-wrap qrcode-login-popup', timeout=2)
