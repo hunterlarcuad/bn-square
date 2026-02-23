@@ -2741,7 +2741,7 @@ class BnSquare():
                 '@@tag()=div@@class:card-page-title@@text():Log in'
             ]
             ele_div = self.inst_dp.get_ele_btn(tab, lst_path)
-            if not isinstance(ele_div, NoneElement):
+            if ele_div is not NoneElement:
                 ele_div_qrcode = tab.ele(
                     '.bn-tooltips-wrap qrcode-login-popup', timeout=2)
                 if not isinstance(ele_div_qrcode, NoneElement):
@@ -2784,6 +2784,7 @@ class BnSquare():
         ele_div_qrcode = tab.ele(
             '@@tag()=div@@aria-label=QR Code status', timeout=2)
         if not isinstance(ele_div_qrcode, NoneElement):
+            tab.wait(2)
             s_base64 = ele_div_qrcode.get_screenshot(
                 as_base64=True)
             ding_msg({
