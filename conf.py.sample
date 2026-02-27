@@ -91,3 +91,7 @@ DEF_DIC_PROJECT = {
 }
 DEF_MAX_NUM_SHORT_POST = 5
 DEF_MAX_NUM_LONG_POST = 3
+############################################################
+# datas/bn_square/visit_user_whitelist.csv
+# 只针对白名单用户，n小时内发的帖子，进行回复
+WHITELIST_USER_NEW_POST_HOUR = 3

@@ -33,6 +33,8 @@ from conf import DEL_PROFILE_DIR
 from conf import FILENAME_LOG
 from conf import logger
 
+from conf import WHITELIST_USER_NEW_POST_HOUR
+
 """
 2026.01.23
 """
@@ -95,6 +97,13 @@ class BnSquare():
 
         self.process_redpacket_post_last_ts = None
         self.process_redpacket_post_interval_sec = None
+
+        self.process_whitelist_post_last_ts = None
+        self.process_whitelist_post_interval_sec = None
+
+        self.file_whitelist = (
+            f'{DEF_PATH_DATA_STATUS}bn_square/visit_user_whitelist.csv'
+        )
 
     def update_interaction_count(self, op_type):
         """
@@ -2240,9 +2249,61 @@ class BnSquare():
             return self.get_home_post_blks()
         elif s_post_type == 'search':
             return self.get_search_post_blks()
+        elif s_post_type == 'whitelist':
+            return self.get_search_post_blks()
         else:
             self.logit(None, f'Invalid post type: {s_post_type}, return')
             return []
+
+    def load_whitelist(self):
+        if not os.path.exists(self.file_whitelist):
+            return []
+        with open(self.file_whitelist, 'r') as fp:
+            lines = fp.readlines()
+        lst_whitelist = []
+        for line in lines[1:]:  # 跳过第一行标题
+            line = line.strip()
+            if not line or line.startswith('#'):
+                continue
+            parts = line.split(',')
+            if len(parts) < 2:
+                continue
+            lst_whitelist.append(parts)
+        return lst_whitelist
+
+    def process_whitelist_post(self):
+        # X分钟内不重复执行
+        now_ts = datetime.now().astimezone()
+        if self.process_whitelist_post_last_ts is not None:
+            elapsed_seconds = (
+                now_ts - self.process_whitelist_post_last_ts).total_seconds()
+            interval_sec = self.process_whitelist_post_interval_sec or 1800
+            if elapsed_seconds < interval_sec:
+                next_ts = (
+                    self.process_redpacket_post_last_ts +
+                    timedelta(seconds=interval_sec)
+                )
+                s_msg = (
+                    f'距上次执行 {int(elapsed_seconds // 60)} 分钟，跳过'
+                    f'（需间隔 {interval_sec // 60} 分钟，'
+                    f'下次执行时间 {next_ts.strftime("%H:%M:%S")}）'
+                )
+                self.logit('process_redpacket_post', s_msg)
+                return
+
+        lst_whitelist = self.load_whitelist()
+        random.shuffle(lst_whitelist)
+
+        for s_url, s_username in lst_whitelist:
+            tab = self.browser.latest_tab
+            tab.get(s_url)
+            tab.wait.doc_loaded()
+            tab.wait(3)
+
+            self.process_post_list(s_post_type='whitelist')
+
+        self.process_whitelist_post_last_ts = datetime.now().astimezone()
+        self.process_whitelist_post_interval_sec = random.randint(3600, 7200)
 
     def process_recommend_post(self):
         # 如果今日回复和点赞数量已达上限，则不处理
@@ -2287,11 +2348,48 @@ class BnSquare():
         self.display_new_posts()
         self.process_post_list(s_post_type='home')
 
+    def is_new_post(self, ele_blk):
+        """
+        检查是否为新帖子，3小时内的帖子视为新帖子
+
+        参数:
+            ele_blk: 帖子元素
+
+        返回:
+            bool: True 表示为新帖子，False 表示为旧帖子
+
+        # 2 分钟
+        # 3 小时
+        # 2月26日
+
+        """
+        ele_div_time = ele_blk.ele(
+            '@@tag()=div@@class=create-time', timeout=2)
+        if isinstance(ele_div_time, NoneElement):
+            return False
+        s_time = ele_div_time.text or ''
+        self.logit(None, f'create-time: {s_time}')
+
+        # 判断是否是 n 小时内的帖子
+        # s_time 可能为: "3 小时"、"2月26日"、"30 分钟" 等
+        m_min = re.match(r'(\d+)\s*分钟', s_time.strip())
+        if m_min:
+            # n小时内
+            return int(m_min.group(1)) <= WHITELIST_USER_NEW_POST_HOUR * 60
+        m_hour = re.match(r'(\d+)\s*小时', s_time.strip())
+        if m_hour:
+            return int(m_hour.group(1)) <= WHITELIST_USER_NEW_POST_HOUR
+        # "X月X日" 或其它格式视为超过 n 小时
+        return False
+
     def process_post_list(self, s_post_type='home'):
         tab = self.browser.latest_tab
         ele_blks = self.get_post_blks(s_post_type)
         n_posts = len(ele_blks)
         self.logit(None, f'Found {n_posts} posts [{s_post_type}]')
+
+        if s_post_type == 'whitelist':
+            n_posts = min(n_posts, 3)
 
         for i in range(n_posts):
             self.logit(
@@ -2317,6 +2415,11 @@ class BnSquare():
 
             if not s_dataid:
                 self.logit(None, 'dataid is empty, skip')
+                continue
+
+            b_is_new_post = self.is_new_post(ele_blk)
+            if s_post_type == 'whitelist' and not b_is_new_post:
+                self.logit(None, 'Not a new post, skip')
                 continue
 
             b_do_comment = True
@@ -2808,6 +2911,9 @@ class BnSquare():
         self.square_post()
         if self.args.search_red_packet:
             self.process_redpacket_post()
+
+        self.process_whitelist_post()
+
         self.click_home()
         self.process_recommend_post()
 
