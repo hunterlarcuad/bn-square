@@ -2811,12 +2811,12 @@ class BnSquare():
         self.logit(None, '##############################')
 
     def check_login(self):
-        tab = self.browser.latest_tab
-        tab.wait.doc_loaded()
         n_max_wait = 60*5
         i = 0
         while i < n_max_wait:
             i += 1
+            tab = self.browser.latest_tab
+            tab.wait.doc_loaded()
             ele_btn = tab.ele(
                 '@@tag()=button@@class:bn-button@@text():登录', timeout=2)
             if not isinstance(ele_btn, NoneElement):
@@ -2825,7 +2825,7 @@ class BnSquare():
                 tab.wait(1)
                 if ele_btn.wait.clickable(timeout=5) is not False:
                     ele_btn.click(by_js=True)
-                    tab.wait(2)
+                    tab.wait(3)
                     continue
 
             lst_path = [
