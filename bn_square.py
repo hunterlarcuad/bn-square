@@ -2476,13 +2476,14 @@ class BnSquare():
                 if daily_max_like > 0:
                     interaction_stats = self.get_today_interaction_stats()
                     if interaction_stats['like'] >= daily_max_like:
-                        self.logit(
-                            None,
-                            f'当日点赞数量已达上限 '
-                            f'({interaction_stats["like"]}/{daily_max_like})，'
-                            f'跳过点赞'
-                        )
-                        b_do_like = False
+                        if s_post_type == 'home':
+                            self.logit(
+                                None,
+                                f'当日点赞数量已达上限 '
+                                f'({interaction_stats["like"]}/'
+                                f'{daily_max_like})，跳过点赞'
+                            )
+                            b_do_like = False
 
             if b_do_like:
                 try:
