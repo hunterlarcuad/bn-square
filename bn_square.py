@@ -34,6 +34,7 @@ from conf import FILENAME_LOG
 from conf import logger
 
 from conf import WHITELIST_USER_NEW_POST_HOUR
+from conf import WHITELIST_USER_MAX_NUM_POST_PER_ROUND
 
 """
 2026.01.23
@@ -674,8 +675,8 @@ class BnSquare():
             str: 生成的回复内容，如果生成失败返回默认回复
         """
         if not s_content or not s_content.strip():
-            self.logit(None, 's_content is empty, using default reply')
-            return '给老铁助力！'
+            self.logit(None, 's_content is empty, return empty string')
+            return ''
 
         s_rules = (
             "请用中文输出\n"
@@ -713,11 +714,7 @@ class BnSquare():
         try:
             s_reply = gene_by_llm(s_prompt)
             if not s_reply:
-                self.logit(
-                    None,
-                    's_reply from llm is empty, using default reply'
-                )
-                return '给老铁助力！'
+                s_reply = ''
 
             # 清理回复
             s_reply = self.clean_reply(s_reply)
@@ -728,15 +725,6 @@ class BnSquare():
             s_reply = re.sub(r'\n+', ' ', s_reply)
             # 去掉多余的空格
             s_reply = re.sub(r' +', ' ', s_reply).strip()
-
-            # 验证回复长度
-            if len(s_reply) < min_len:
-                self.logit(
-                    None,
-                    f'Reply length ({len(s_reply)}) less than {min_len}, '
-                    f'using default reply'
-                )
-                return '给老铁助力！'
 
             # 如果回复太长，截断
             if len(s_reply) > max_len:
@@ -753,7 +741,7 @@ class BnSquare():
 
         except Exception as e:
             self.logit(None, f'Error calling gene_by_llm for reply: {e}')
-            return '给老铁助力！'
+            return ''
 
     def gene_title_by_llm(self, s_text, min_len=10, max_len=30):
         """
@@ -2037,9 +2025,10 @@ class BnSquare():
                     timeout=2)
                 if not isinstance(ele_input, NoneElement):
                     s_reply = self.gene_reply_by_llm(s_content)
-                    lst_text = (
-                        [s_reply] if s_reply else ['给老铁助力！']
-                    )
+                    if not s_reply:
+                        return False
+
+                    lst_text = [s_reply]
                     self.input_post_text(ele_input, lst_text)
                     tab.wait(1)
                     self.cancel_comment_and_forward(ele_blk)
@@ -2303,7 +2292,7 @@ class BnSquare():
             self.process_post_list(s_post_type='whitelist')
 
         self.process_whitelist_post_last_ts = datetime.now().astimezone()
-        self.process_whitelist_post_interval_sec = random.randint(3600, 7200)
+        self.process_whitelist_post_interval_sec = random.randint(3600, 3800)
 
     def process_recommend_post(self):
         # 如果今日回复和点赞数量已达上限，则不处理
@@ -2389,7 +2378,7 @@ class BnSquare():
         self.logit(None, f'Found {n_posts} posts [{s_post_type}]')
 
         if s_post_type == 'whitelist':
-            n_posts = min(n_posts, 3)
+            n_posts = min(n_posts, WHITELIST_USER_MAX_NUM_POST_PER_ROUND)
 
         for i in range(n_posts):
             self.logit(
