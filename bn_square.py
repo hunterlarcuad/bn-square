@@ -36,6 +36,8 @@ from conf import logger
 from conf import WHITELIST_USER_NEW_POST_HOUR
 from conf import WHITELIST_USER_MAX_NUM_POST_PER_ROUND
 
+from conf import SILENCE_TIME_RANGE
+
 """
 2026.01.23
 """
@@ -2277,13 +2279,20 @@ class BnSquare():
                     f'（需间隔 {interval_sec // 60} 分钟，'
                     f'下次执行时间 {next_ts.strftime("%H:%M:%S")}）'
                 )
-                self.logit('process_redpacket_post', s_msg)
+                self.logit('process_whitelist_post', s_msg)
                 return
 
         lst_whitelist = self.load_whitelist()
         random.shuffle(lst_whitelist)
 
+        i = 0
         for s_url, s_username in lst_whitelist:
+            i += 1
+            self.logit(
+                None,
+                f'[{i}/{len(lst_whitelist)}] Processing whitelist post: '
+                f'{s_username} {s_url}'
+            )
             tab = self.browser.latest_tab
             tab.get(s_url)
             tab.wait.doc_loaded()
@@ -2897,6 +2906,21 @@ class BnSquare():
             return True
         return False
 
+    def is_in_silence_time_range(self):
+        # 使用 TZ_OFFSET 与配置的静默时间段时区一致，区间为左闭右开 [start, end)
+        now_time = format_ts(time.time(), style=4, tz_offset=TZ_OFFSET)
+        for range_str in SILENCE_TIME_RANGE:
+            start, end = range_str.split('-')
+            if start <= end:
+                # 同一天内，如 00:30-08:50 表示 [00:30, 08:50)
+                if start <= now_time < end:
+                    return True
+            else:
+                # 跨天，如 16:30-00:50 表示 [16:30, 次日00:50)
+                if now_time >= start or now_time < end:
+                    return True
+        return False
+
     def square_run(self):
         if args.debug:
             pdb.set_trace()
@@ -2910,10 +2934,16 @@ class BnSquare():
         if self.args.search_red_packet:
             self.process_redpacket_post()
 
-        self.process_whitelist_post()
-
-        self.click_home()
-        self.process_recommend_post()
+        if self.is_in_silence_time_range():
+            range_display = ', '.join(SILENCE_TIME_RANGE)
+            self.logit(
+                None,
+                f'In silence time range [{range_display}], skip process'
+            )
+        else:
+            self.process_whitelist_post()
+            self.click_home()
+            self.process_recommend_post()
 
         if self.args.manual_exit:
             s_msg = 'Manual Exit. Press any key to exit! ⚠️'  # noqa
