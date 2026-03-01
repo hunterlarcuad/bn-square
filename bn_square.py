@@ -2359,6 +2359,12 @@ class BnSquare():
         s_time = ele_div_time.text or ''
         self.logit(None, f'create-time: {s_time}')
 
+        if s_time.strip() == '--':
+            tab = self.browser.latest_tab
+            tab.refresh()
+            tab.wait.doc_loaded()
+            return False
+
         # 判断是否是 n 小时内的帖子
         # s_time 可能为: "3 小时"、"2月26日"、"30 分钟" 等
         m_min = re.match(r'(\d+)\s*分钟', s_time.strip())
