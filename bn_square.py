@@ -2121,8 +2121,12 @@ class BnSquare():
         if daily_max_like == 0 and daily_max_comment == 0:
             return False
 
-        # 获取今日互动统计
-        interaction_stats = self.get_today_interaction_stats()
+        # 获取今日互动统计（按天 list，取最新一天，最后一项为最新日期）
+        by_day = self.get_day_interaction_stats()
+        _empty = {'comment': 0, 'like': 0, 'claim_redpacket': 0, 'miss_redpacket': 0}
+        interaction_stats = (
+            by_day[-1][1] if by_day else _empty
+        )
 
         # 检查所有设置了限制的项目是否都达到上限
         like_limit_reached = False
@@ -2446,13 +2450,17 @@ class BnSquare():
                 daily_max_comment = getattr(
                     self.args, 'daily_max_comment', 0)
                 if daily_max_comment > 0:
-                    interaction_stats = self.get_today_interaction_stats()
-                    if interaction_stats['comment'] >= daily_max_comment:
+                    by_day = self.get_day_interaction_stats()
+                    _st = by_day[-1][1] if by_day else {
+                        'comment': 0, 'like': 0,
+                        'claim_redpacket': 0, 'miss_redpacket': 0
+                    }
+                    if _st['comment'] >= daily_max_comment:
                         if s_post_type == 'home':
                             self.logit(
                                 None,
                                 f'当日回复数量已达上限 '
-                                f'({interaction_stats["comment"]}/'
+                                f'({_st["comment"]}/'
                                 f'{daily_max_comment})，跳过回复'
                             )
                             b_do_comment = False
@@ -2491,13 +2499,17 @@ class BnSquare():
                 # 检查当日点赞数量限制
                 daily_max_like = getattr(self.args, 'daily_max_like', 0)
                 if daily_max_like > 0:
-                    interaction_stats = self.get_today_interaction_stats()
-                    if interaction_stats['like'] >= daily_max_like:
+                    by_day = self.get_day_interaction_stats()
+                    _st = by_day[-1][1] if by_day else {
+                        'comment': 0, 'like': 0,
+                        'claim_redpacket': 0, 'miss_redpacket': 0
+                    }
+                    if _st['like'] >= daily_max_like:
                         if s_post_type == 'home':
                             self.logit(
                                 None,
                                 f'当日点赞数量已达上限 '
-                                f'({interaction_stats["like"]}/'
+                                f'({_st["like"]}/'
                                 f'{daily_max_like})，跳过点赞'
                             )
                             b_do_like = False
@@ -2614,37 +2626,35 @@ class BnSquare():
 
         return stats
 
-    def get_today_interaction_stats(self):
+    def get_day_interaction_stats(self, days=1):
         """
-        统计今日总的回复、点赞、领红包和错过红包数量
+        统计「日志里」最近 days 天的回复、点赞、领红包和错过红包数量。
+        天以日志中实际出现的日期为准；返回按天分组的统计，key 为日期。
+
+        参数:
+            days: 统计天数，默认为 1（日志里最新一天）
 
         返回:
-            dict: {
-                'comment': 回复数量,
-                'like': 点赞数量,
-                'claim_redpacket': 领红包数量,
-                'miss_redpacket': 错过红包数量
-            }
+            list: 项为 (日期字符串, 当日统计 dict)，按日期升序。
+                当日统计 dict: {'comment': n, 'like': n, 'claim_redpacket': n, 'miss_redpacket': n}
+                仅包含最近 n 天的日期。
         """
         if not os.path.exists(self.file_interaction):
-            return {
-                'comment': 0,
-                'like': 0,
-                'claim_redpacket': 0,
-                'miss_redpacket': 0
-            }
+            return []
 
-        # 使用 TZ_OFFSET 获取今天的日期字符串
-        today_str = format_ts(time.time(), style=1, tz_offset=TZ_OFFSET)
-        stats = {'comment': 0, 'like': 0,
-                 'claim_redpacket': 0, 'miss_redpacket': 0}
+        valid_op_types = {
+            'comment', 'like', 'claim_redpacket', 'miss_redpacket'
+        }
 
         try:
             with open(self.file_interaction, 'r') as fp:
                 lines = fp.readlines()
         except Exception:  # noqa
-            return stats
+            return []
 
+        # 第一遍：从日志里收集所有出现过的日期，以及每条 (日期, op_type)
+        dates_in_log = set()
+        items = []
         for line in lines:
             line = line.strip()
             if not line or line.startswith('update'):
@@ -2653,34 +2663,37 @@ class BnSquare():
             if len(parts) < 4:
                 continue
             s_ts, _, s_op_type, _ = parts
-
-            # 只统计 comment、like、claim_redpacket 和 miss_redpacket
-            if s_op_type not in [
-                    'comment', 'like', 'claim_redpacket', 'miss_redpacket']:
+            if s_op_type not in valid_op_types:
                 continue
-
             try:
-                # 解析时间戳字符串
-                interaction_ts = datetime.strptime(s_ts, '%Y-%m-%dT%H:%M:%S%z')
-                # 转换为时间戳（秒）
-                interaction_ts_timestamp = interaction_ts.timestamp()
-                # 使用 TZ_OFFSET 转换为日期字符串进行比较
-                interaction_date_str = format_ts(
-                    interaction_ts_timestamp, style=1, tz_offset=TZ_OFFSET)
-                if interaction_date_str == today_str:
-                    # 增加对应类型的计数
-                    if s_op_type == 'comment':
-                        stats['comment'] += 1
-                    elif s_op_type == 'like':
-                        stats['like'] += 1
-                    elif s_op_type == 'claim_redpacket':
-                        stats['claim_redpacket'] += 1
-                    elif s_op_type == 'miss_redpacket':
-                        stats['miss_redpacket'] += 1
+                interaction_ts = datetime.strptime(
+                    s_ts, '%Y-%m-%dT%H:%M:%S%z'
+                )
+                ts = interaction_ts.timestamp()
+                date_str = format_ts(ts, style=1, tz_offset=TZ_OFFSET)
+                dates_in_log.add(date_str)
+                items.append((date_str, s_op_type))
             except Exception:  # noqa
                 continue
 
-        return stats
+        # 日志里按日期排序，取最近 days 天
+        sorted_dates = sorted(dates_in_log)
+        valid_dates = set(sorted_dates[-days:]) if sorted_dates else set()
+
+        # 按天聚合：day -> { comment, like, claim_redpacket, miss_redpacket }
+        by_day = {}
+        for date_str, s_op_type in items:
+            if date_str not in valid_dates:
+                continue
+            if date_str not in by_day:
+                by_day[date_str] = {
+                    'comment': 0, 'like': 0,
+                    'claim_redpacket': 0, 'miss_redpacket': 0
+                }
+            by_day[date_str][s_op_type] += 1
+
+        # 按日期升序返回 list，保证顺序：[(date_str, stats_dict), ...]
+        return [(d, by_day[d]) for d in sorted_dates if d in by_day]
 
     def get_interaction_stats_by_hour_from_log(self):
         """
@@ -2757,16 +2770,18 @@ class BnSquare():
             self.logit(None, '今日统计: 暂无发送记录')
 
         self.logit(None, '##############################')
-        # 统计今日总的回复、点赞、领红包和错过红包数量
-        interaction_stats = self.get_today_interaction_stats()
+        # 统计最近 3 天互动（按天 list），并汇总展示
+        by_day = self.get_day_interaction_stats(days=3)
+        _keys = ['comment', 'like', 'claim_redpacket', 'miss_redpacket']
+        total = {k: sum(s[k] for _, s in by_day) for k in _keys}
         self.logit(
             None,
-            f'今日互动: 回复 [{interaction_stats["comment"]}/'
+            f'最近3天互动: 回复 [{total["comment"]}/'
             f'{self.args.daily_max_comment}], '
-            f'点赞 [{interaction_stats["like"]}/{self.args.daily_max_like}], '
-            f'领红包 [{interaction_stats["claim_redpacket"]}/'
+            f'点赞 [{total["like"]}/{self.args.daily_max_like}], '
+            f'领红包 [{total["claim_redpacket"]}/'
             f'{self.args.interaction_limit}], '
-            f'错过红包 [{interaction_stats["miss_redpacket"]}/'
+            f'错过红包 [{total["miss_redpacket"]}/'
             f'{self.args.interaction_limit}]'
         )
         self.logit(None, '##############################')
@@ -2785,14 +2800,13 @@ class BnSquare():
                 )
 
         # 今日统计、今日互动、按小时 写入 file_statistics
-        today_str = format_ts(time.time(), style=1, tz_offset=TZ_OFFSET)
         dir_stat = os.path.dirname(self.file_statistics)
         if dir_stat and not os.path.exists(dir_stat):
             os.makedirs(dir_stat)
         with open(self.file_statistics, 'w') as fp:
             fp.write('# 表头: section, key, v1, v2, v3, v4\n')
             fp.write(
-                '# section=today_interaction: key=日期, '
+                '# section=day_interaction: key=日期, '
                 'v1=回复, v2=点赞, v3=领红包, v4=错过红包\n'
             )
             fp.write(
@@ -2803,13 +2817,12 @@ class BnSquare():
                 'v1=点赞, v2=回复, v3=领红包\n'
             )
             fp.write(self.DEF_HEADER_STATISTICS + '\n')
-            fp.write(
-                f'today_interaction,{today_str},'
-                f'{interaction_stats["comment"]},'
-                f'{interaction_stats["like"]},'
-                f'{interaction_stats["claim_redpacket"]},'
-                f'{interaction_stats["miss_redpacket"]}\n'
-            )
+            for date_str, s in by_day:
+                fp.write(
+                    f'day_interaction,{date_str},'
+                    f'{s["comment"]},{s["like"]},'
+                    f'{s["claim_redpacket"]},{s["miss_redpacket"]}\n'
+                )
             # 今日统计: section=today_post, key=proj, v1=post_short, v2=post_long
             if post_stats:
                 for proj, stats in post_stats.items():
