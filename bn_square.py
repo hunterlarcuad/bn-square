@@ -2383,6 +2383,8 @@ class BnSquare():
         for i in range(n_posts):
             self.logit(
                 None, f'Processing post {i+1}/{n_posts} [{s_post_type}]')
+            if self.check_login() is False:
+                return False
             ele_blks = self.get_post_blks(s_post_type)
             if i >= len(ele_blks):
                 break
@@ -2983,10 +2985,16 @@ def main(args):
                     time.sleep(5)
 
         sleep_time = random.randint(args.sleep_sec_min, args.sleep_sec_max)
+        next_run = (datetime.now().astimezone() +
+                    timedelta(seconds=sleep_time))
+        next_run_str = next_run.strftime('%Y-%m-%d %H:%M:%S')
         if sleep_time > 60:
-            logger.info('sleep {} minutes ...'.format(int(sleep_time/60)))
+            s_sleep = f'{int(sleep_time/60)} 分钟'
         else:
-            logger.info('sleep {} seconds ...'.format(int(sleep_time)))
+            s_sleep = f'{int(sleep_time)} 秒'
+        logger.info(
+            f'sleep {s_sleep} ..., 下次执行: {next_run_str}'
+        )
         time.sleep(sleep_time)
 
 
