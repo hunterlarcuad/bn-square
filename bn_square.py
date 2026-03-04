@@ -376,12 +376,13 @@ class BnSquare():
 
         try:
             tab.actions.move_to(ele_btn).click()
+            tab.wait(2)
             b_first = True
             for s_text in lst_text:
                 if not b_first:
                     s_text = ' ' + s_text
                 tab.actions.type(s_text)
-                tab.wait(1)
+                tab.wait(2)
                 self.select_item()
                 b_first = False
         except Exception as e:  # noqa
@@ -1883,7 +1884,7 @@ class BnSquare():
             return True
         return False
 
-    def comment_redpacket(self, ele_blk, ele_footer_blk, s_dataid, s_content):
+    def click_post_block(self, ele_blk):
         tab = self.browser.latest_tab
 
         ele_time = ele_blk.ele(
@@ -1891,26 +1892,18 @@ class BnSquare():
         if not isinstance(ele_time, NoneElement):
             s_time = ele_time.text
             tab.actions.move_to(ele_time, offset_x=100).click()
-            self.logit(None, f'Redpacket time: {s_time}')
+            self.logit(None, f'Post time: {s_time}')
             tab.wait.doc_loaded()
             tab.wait(3)
+            return True
+        return False
 
-        # if ele_blk.wait.clickable(timeout=5) is not False:
-        #    ele_blk.click()
-        #    tab.wait.doc_loaded()
-        #    tab.wait(3)
-        #    self.logit(None, f'Redpacket time: {s_time}')
-        # else:
-        #    self.logit(None, 'Content block is not clickable')
-        #    return False
+    def comment_redpacket(self, ele_blk, s_dataid, s_content):
+        tab = self.browser.latest_tab
 
         if self.check_tab_num():
             self.logit(None, 'Tab number is greater than 1, return')
             return False
-
-        # tab.actions.move_to(ele_blk).click()
-        # tab.wait.doc_loaded()
-        # tab.wait(3)
 
         s_text = ''
 
@@ -1950,7 +1943,7 @@ class BnSquare():
                     return False
 
         ele_input = tab.ele(
-            '@@tag()=div@@class:feed-comment-input-textarea ',
+            '@@tag()=input@@class:rounded-10 text-SecondaryText',
             timeout=2)
         if not isinstance(ele_input, NoneElement):
             lst_text = [s_text]
@@ -1960,8 +1953,7 @@ class BnSquare():
             tab.wait(1)
 
             ele_btn = tab.ele(
-                '@@tag()=button@@data-bn-type=button'
-                '@@class:feed-comment-input-submit-btn',
+                '@@tag()=button@@text()=回复',
                 timeout=2)
             if not isinstance(ele_btn, NoneElement):
                 tab.actions.move_to(ele_btn)
@@ -2012,49 +2004,62 @@ class BnSquare():
                 return True
         return False
 
-    def comment_post(self, ele_blk, ele_footer_blk, s_dataid, s_content):
+    def is_redpacket_post(self):
         tab = self.browser.latest_tab
-        ele_comment = ele_footer_blk.ele(
-            '@@tag()=div@@class:comments-icon', timeout=2)
-        if not isinstance(ele_comment, NoneElement):
-            ele_btn = ele_comment.ele(
-                '@@tag()=div@@class:group-hover', timeout=2)
+        ele_post_detail_blk = tab.ele(
+            '@@tag()=div@@class=post-detail-content-block',
+            timeout=2)
+        if isinstance(ele_post_detail_blk, NoneElement):
+            return False
+        s_text = ele_post_detail_blk.text
+        if '红包有奖问答' in s_text:
+            return True
+        return False
+
+    def comment_post(self, ele_blk, s_dataid, s_content):
+        tab = self.browser.latest_tab
+
+        ele_footer_blk = tab.ele(
+            '@@tag()=div@@class:article-social border-Line mb-0 grid',
+            timeout=2)
+        if isinstance(ele_footer_blk, NoneElement):
+            self.logit(
+                None,
+                'class:article-social border-Line mb-0 grid div not found')
+            return False
+
+        ele_input = tab.ele(
+            '@@tag()=input@@class:rounded-10 text-SecondaryText',
+            timeout=2)
+        if not isinstance(ele_input, NoneElement):
+            s_reply = self.gene_reply_by_llm(s_content)
+            if not s_reply:
+                return False
+
+            lst_text = [s_reply]
+            self.input_post_text(ele_input, lst_text)
+            tab.wait(1)
+            self.cancel_comment_and_forward(ele_blk)
+            tab.wait(1)
+            ele_btn = tab.ele(
+                '@@tag()=button@@text()=回复',
+                timeout=2)
             if not isinstance(ele_btn, NoneElement):
                 ele_btn.click(by_js=True)
-                tab.wait(3)
-                ele_input = ele_blk.ele(
-                    '@@tag()=div@@class:feed-comment-input-textarea ',
-                    timeout=2)
-                if not isinstance(ele_input, NoneElement):
-                    s_reply = self.gene_reply_by_llm(s_content)
-                    if not s_reply:
-                        return False
+                tab.wait(2)
 
-                    lst_text = [s_reply]
-                    self.input_post_text(ele_input, lst_text)
-                    tab.wait(1)
-                    self.cancel_comment_and_forward(ele_blk)
-                    tab.wait(1)
-                    ele_btn = ele_blk.ele(
-                        '@@tag()=button@@data-bn-type=button'
-                        '@@class:feed-comment-input-submit-btn',
-                        timeout=2)
-                    if not isinstance(ele_btn, NoneElement):
-                        ele_btn.click(by_js=True)
-                        tab.wait(2)
+                # 关注并回复 弹窗
+                if self.follow_and_reply(post_type='comment') is False:
+                    return False
 
-                        # 关注并回复 弹窗
-                        if self.follow_and_reply(post_type='comment') is False:
-                            return False
-
-                        # 写入互动记录
-                        if s_dataid:
-                            self.interaction_append(
-                                s_dataid, 'comment', s_reply[:50]
-                            )
-                        # 更新回复计数
-                        self.update_interaction_count('comment')
-                        return True
+                # 写入互动记录
+                if s_dataid:
+                    self.interaction_append(
+                        s_dataid, 'comment', s_reply[:50]
+                    )
+                # 更新回复计数
+                self.update_interaction_count('comment')
+                return True
 
         return False
 
@@ -2109,21 +2114,24 @@ class BnSquare():
 
     def is_interaction_limit_reached(self):
         """
-        检查今日回复和点赞数量是否已达到上限
+        检查今日回复和点赞数量是否已达到上限。
+        daily_max_* == -1 表示无限制（返回 False），== 0 表示不操作（视为已达），
+        > 0 表示上限值。
 
         返回:
-            bool: 只有当所有设置了限制的项目都达到上限时返回 True，否则返回 False
+            bool: 仅当所有需检查的项都达上限时返回 True；任一侧为 -1 则返回 False。
         """
         daily_max_like = getattr(self.args, 'daily_max_like', 0)
         daily_max_comment = getattr(self.args, 'daily_max_comment', 0)
 
-        # 如果两个参数都是 0（无限制），直接返回 False
+        # 两者均为 0（不操作）时，无需继续互动，返回 True
         if daily_max_like == 0 and daily_max_comment == 0:
-            return False
+            return True
 
         # 获取今日互动统计（按天 list，取最新一天，最后一项为最新日期）
         by_day = self.get_day_interaction_stats()
-        _empty = {'comment': 0, 'like': 0, 'claim_redpacket': 0, 'miss_redpacket': 0}
+        _empty = {'comment': 0, 'like': 0,
+                  'claim_redpacket': 0, 'miss_redpacket': 0}
         interaction_stats = (
             by_day[-1][1] if by_day else _empty
         )
@@ -2132,8 +2140,13 @@ class BnSquare():
         like_limit_reached = False
         comment_limit_reached = False
 
-        # 检查点赞限制
-        if daily_max_like > 0:
+        # 点赞：0=不操作（视为已达），-1=无限制（未达，返回 False），>0=检查上限
+        if daily_max_like == 0:
+            like_limit_reached = True
+        elif daily_max_like == -1:
+            like_limit_reached = False
+            return False
+        elif daily_max_like > 0:
             if interaction_stats['like'] >= daily_max_like:
                 like_limit_reached = True
                 self.logit(
@@ -2142,14 +2155,15 @@ class BnSquare():
                     f'({interaction_stats["like"]}/{daily_max_like})'
                 )
             else:
-                # 如果设置了限制但未达到，返回 False
                 return False
-        else:
-            # 如果未设置点赞限制，视为已满足条件
-            like_limit_reached = True
 
-        # 检查回复限制
-        if daily_max_comment > 0:
+        # 回复：0=不操作（视为已达），-1=无限制（未达，返回 False），>0=检查上限
+        if daily_max_comment == 0:
+            comment_limit_reached = True
+        elif daily_max_comment == -1:
+            comment_limit_reached = False
+            return False
+        elif daily_max_comment > 0:
             if interaction_stats['comment'] >= daily_max_comment:
                 comment_limit_reached = True
                 self.logit(
@@ -2158,11 +2172,7 @@ class BnSquare():
                     f'({interaction_stats["comment"]}/{daily_max_comment})'
                 )
             else:
-                # 如果设置了限制但未达到，返回 False
                 return False
-        else:
-            # 如果未设置回复限制，视为已满足条件
-            comment_limit_reached = True
 
         # 只有当所有设置了限制的项目都达到上限时，才返回 True
         if like_limit_reached and comment_limit_reached:
@@ -2275,7 +2285,7 @@ class BnSquare():
             interval_sec = self.process_whitelist_post_interval_sec or 1800
             if elapsed_seconds < interval_sec:
                 next_ts = (
-                    self.process_redpacket_post_last_ts +
+                    self.process_whitelist_post_last_ts +
                     timedelta(seconds=interval_sec)
                 )
                 s_msg = (
@@ -2399,6 +2409,9 @@ class BnSquare():
         if s_post_type == 'whitelist':
             n_posts = min(n_posts, WHITELIST_USER_MAX_NUM_POST_PER_ROUND)
 
+        is_max_comments_reached = False
+        is_max_likes_reached = False
+
         for i in range(n_posts):
             self.logit(
                 None, f'Processing post {i+1}/{n_posts} [{s_post_type}]')
@@ -2432,73 +2445,21 @@ class BnSquare():
                 self.logit(None, 'Not a new post, skip')
                 continue
 
-            b_do_comment = True
-            # 检查是否已经评论过（包括 comment、claim_redpacket、miss_redpacket）
-            if self.is_interacted(s_dataid, 'comment'):
-                self.logit(None, f'Already commented on {s_dataid}, skip')
-                b_do_comment = False
-            elif self.is_interacted(s_dataid, 'claim_redpacket'):
-                self.logit(
-                    None, f'Already claimed redpacket on {s_dataid}, skip')
-                continue
-            elif self.is_interacted(s_dataid, 'miss_redpacket'):
-                self.logit(
-                    None, f'Already missed redpacket on {s_dataid}, skip')
-                continue
-            else:
-                # 检查当日回复数量限制
-                daily_max_comment = getattr(
-                    self.args, 'daily_max_comment', 0)
-                if daily_max_comment > 0:
-                    by_day = self.get_day_interaction_stats()
-                    _st = by_day[-1][1] if by_day else {
-                        'comment': 0, 'like': 0,
-                        'claim_redpacket': 0, 'miss_redpacket': 0
-                    }
-                    if _st['comment'] >= daily_max_comment:
-                        if s_post_type == 'home':
-                            self.logit(
-                                None,
-                                f'当日回复数量已达上限 '
-                                f'({_st["comment"]}/'
-                                f'{daily_max_comment})，跳过回复'
-                            )
-                            b_do_comment = False
-
-            if b_do_comment:
-                try:
-                    ele_footer_blk = ele_blk.ele(
-                        '@@tag()=div@@class:footer-function-grid',
-                        timeout=2)
-                    if not isinstance(ele_footer_blk, NoneElement):
-                        b_ret_comment = self.comment_post(
-                            ele_blk, ele_footer_blk, s_dataid, s_content
-                        )
-                        if b_ret_comment is False:
-                            b_ret_redpacket = self.comment_redpacket(
-                                ele_blk, ele_footer_blk, s_dataid,
-                                s_content
-                            )
-                            self.click_back_arrow()
-                            if b_ret_redpacket is False:
-                                continue
-                            else:
-                                self.logit(
-                                    None, 'Redpacket claimed successfully')
-                                continue
-                        else:
-                            self.logit(None, 'Comment posted')
-                except Exception as e:  # noqa
-                    self.logit(None, f'Error processing comment: {e}')
-
             b_do_like = True
             # 检查是否已经点赞过
             if self.is_interacted(s_dataid, 'like'):
                 self.logit(None, f'Already liked {s_dataid}, skip')
             else:
-                # 检查当日点赞数量限制
+                # 检查当日点赞数量限制：0=不操作，-1=无限制，>0=检查上限
                 daily_max_like = getattr(self.args, 'daily_max_like', 0)
-                if daily_max_like > 0:
+                if daily_max_like == 0:
+                    if s_post_type == 'home':
+                        self.logit(
+                            None,
+                            '当日点赞上限为0，跳过点赞'
+                        )
+                        b_do_like = False
+                elif daily_max_like > 0:
                     by_day = self.get_day_interaction_stats()
                     _st = by_day[-1][1] if by_day else {
                         'comment': 0, 'like': 0,
@@ -2513,7 +2474,7 @@ class BnSquare():
                                 f'{daily_max_like})，跳过点赞'
                             )
                             b_do_like = False
-
+                            is_max_likes_reached = True
             if b_do_like:
                 try:
                     ele_footer_blk = ele_blk.ele(
@@ -2528,7 +2489,71 @@ class BnSquare():
                 except Exception as e:  # noqa
                     self.logit(None, f'Error processing like: {e}')
 
-        return False
+            b_do_comment = True
+            # 检查是否已经评论过（包括 comment、claim_redpacket、miss_redpacket）
+            if self.is_interacted(s_dataid, 'comment'):
+                self.logit(None, f'Already commented on {s_dataid}, skip')
+                b_do_comment = False
+            elif self.is_interacted(s_dataid, 'claim_redpacket'):
+                self.logit(
+                    None, f'Already claimed redpacket on {s_dataid}, skip')
+                continue
+            elif self.is_interacted(s_dataid, 'miss_redpacket'):
+                self.logit(
+                    None, f'Already missed redpacket on {s_dataid}, skip')
+                continue
+            else:
+                # 检查当日回复数量限制：0=不操作，-1=无限制，>0=检查上限
+                daily_max_comment = getattr(
+                    self.args, 'daily_max_comment', 0)
+                if daily_max_comment == 0:
+                    if s_post_type == 'home':
+                        self.logit(
+                            None,
+                            '当日回复上限为0，跳过回复'
+                        )
+                        b_do_comment = False
+                elif daily_max_comment > 0:
+                    by_day = self.get_day_interaction_stats()
+                    _st = by_day[-1][1] if by_day else {
+                        'comment': 0, 'like': 0,
+                        'claim_redpacket': 0, 'miss_redpacket': 0
+                    }
+                    if _st['comment'] >= daily_max_comment:
+                        if s_post_type == 'home':
+                            self.logit(
+                                None,
+                                f'当日回复数量已达上限 '
+                                f'({_st["comment"]}/'
+                                f'{daily_max_comment})，跳过回复'
+                            )
+                            b_do_comment = False
+                            is_max_comments_reached = True
+            if b_do_comment:
+                try:
+                    tab = self.browser.latest_tab
+                    if self.click_post_block(ele_blk):
+                        if self.is_redpacket_post():
+                            self.logit(None, 'Redpacket post, claim redpacket')
+                            b_ret_redpacket = self.comment_redpacket(
+                                ele_blk, s_dataid,
+                                s_content
+                            )
+                            if b_ret_redpacket is False:
+                                pass
+                            else:
+                                self.logit(
+                                    None, 'Redpacket claimed successfully')
+                        else:
+                            self.comment_post(
+                                ele_blk, s_dataid, s_content
+                            )
+                        self.click_back_arrow()
+                except Exception as e:  # noqa
+                    self.logit(None, f'Error processing comment: {e}')
+            if is_max_comments_reached and is_max_likes_reached:
+                break
+        return True
 
     def process_redpacket_post(self):
         # 30-40 分钟内不重复执行
@@ -2636,7 +2661,7 @@ class BnSquare():
 
         返回:
             list: 项为 (日期字符串, 当日统计 dict)，按日期升序。
-                当日统计 dict: {'comment': n, 'like': n, 'claim_redpacket': n, 'miss_redpacket': n}
+                当日统计 dict 含 comment, like, claim_redpacket, miss_redpacket。
                 仅包含最近 n 天的日期。
         """
         if not os.path.exists(self.file_interaction):
@@ -3116,13 +3141,13 @@ if __name__ == '__main__':
         help='Maximum sleep seconds after reaching interaction limit (default: 1200, 20 minutes)'  # noqa
     )
     parser.add_argument(
-        '--daily_max_like', required=False, type=int, default=100,
-        help='Daily maximum like count (0 means no limit, default: 100)'
+        '--daily_max_like', required=False, type=int, default=10,
+        help='Daily max like: -1=unlimited, 0=no like, >0=limit (default: 100)'
     )
     parser.add_argument(
-        '--daily_max_comment', required=False, type=int, default=100,
-        help='Daily maximum comment/reply count '
-        '(0 means no limit, default: 100)'
+        '--daily_max_comment', required=False, type=int, default=10,
+        help='Daily max comment: -1=unlimited, 0=no comment, >0=limit '
+        '(default: 100)'
     )
     parser.add_argument(
         '--search_red_packet', required=False, action='store_true',
