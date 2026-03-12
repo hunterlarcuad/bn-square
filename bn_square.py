@@ -1752,10 +1752,10 @@ class BnSquare():
         # 根据类型设置参数
         if post_type == 'post_short':
             n_sleep = random.randint(1800, 3600)
-            min_len, max_len = 150, 400
+            min_len, max_len = 400, 450
         else:
             n_sleep = random.randint(3600, 7200)
-            min_len, max_len = 600, 800
+            min_len, max_len = 700, 900
 
         # 检查推文条件并发布
         b_is_time_ready = self.is_time_ready(post_type, s_proj, n_sleep)
