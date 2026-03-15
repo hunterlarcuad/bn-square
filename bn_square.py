@@ -6,7 +6,6 @@ import random
 import time
 import pdb  # noqa
 import shutil
-import re  # noqa
 from datetime import datetime, timedelta  # noqa
 
 from DrissionPage._elements.none_element import NoneElement
@@ -37,6 +36,11 @@ from conf import WHITELIST_USER_NEW_POST_HOUR
 from conf import WHITELIST_USER_MAX_NUM_POST_PER_ROUND
 
 from conf import SILENCE_TIME_RANGE
+from conf import DEF_CUSTOM_PROMPT_POST
+from conf import DEF_CUSTOM_PROMPT_REPLY
+
+# LLM 验证回复合格时的返回值（与不合格原因同类型，便于调用方统一处理）
+DEF_INTERACTION_OK = 'OK'
 
 """
 2026.01.23
@@ -665,6 +669,43 @@ class BnSquare():
 
         return s_reply
 
+    def verify_reply_by_llm(self, s_tweet_text, s_reply):
+        """
+        使用 LLM 验证回复内容与推文的语义相关性及得体性
+        Args:
+            s_tweet_text: 推文内容
+            s_reply: 回复内容
+
+        Returns:
+            tuple: (bool, str) - (是否合格, 不合格原因或 DEF_INTERACTION_OK)
+        """
+        s_prompt = (
+            "# 【功能】\n"
+            "判断以下回复是否适合作为该推文的评论。\n"
+            "# 【推文】\n"
+            f"{s_tweet_text}\n"
+            "# 【回复】\n"
+            f"{s_reply}\n"
+            "# 【要求】\n"
+            "仅输出一行：合格 或 不合格: 具体原因\n"
+        )
+        try:
+            s_rsp = gene_by_llm(s_prompt)
+            if not s_rsp:
+                return False, 'LLM 验证调用失败'
+        except Exception as e:
+            self.logit(None, f'verify_reply_by_llm error: {e}')
+            return False, str(e)
+
+        s_rsp = s_rsp.strip()
+        if s_rsp.startswith('合格'):
+            return True, DEF_INTERACTION_OK
+        if s_rsp.startswith('不合格'):
+            reason = s_rsp.split(':', 1)[-1].strip() if ':' in s_rsp else s_rsp
+            return False, reason or 'LLM 判定不合格'
+
+        return False, f'LLM 返回格式异常: {s_rsp[:50]}'
+
     def gene_reply_by_llm(self, s_content, min_len=10, max_len=50):
         """
         通过大模型生成评论回复
@@ -691,6 +732,8 @@ class BnSquare():
             "回复要符合中文表达习惯，语言自然流畅\n"
             "回复不要出现 <|begin_of_box|> 和 <|end_of_box|> 标签\n"
         )
+        if DEF_CUSTOM_PROMPT_REPLY and DEF_CUSTOM_PROMPT_REPLY.strip():
+            s_rules += f"\n{DEF_CUSTOM_PROMPT_REPLY.strip()}\n"
 
         s_prompt = (
             "# 【功能】\n"
@@ -737,6 +780,12 @@ class BnSquare():
                     last_space = s_reply.rfind(' ')
                     if last_space > min_len:
                         s_reply = s_reply[:last_space].rstrip()
+
+            is_reply_qualified, reason = self.verify_reply_by_llm(
+                s_content, s_reply)
+            if not is_reply_qualified:
+                self.logit(None, f'Reply not qualified: {reason}')
+                return False
 
             self.logit(
                 None, f'Generated reply: {s_reply} (length: {len(s_reply)})')
@@ -947,6 +996,8 @@ class BnSquare():
             "特别注意，不要出现回复如下之类的字眼，直接输出回复内容\n"
             "特别注意，回复不要出现 <|begin_of_box|> 和 <|end_of_box|> 标签\n"
         )
+        if DEF_CUSTOM_PROMPT_POST and DEF_CUSTOM_PROMPT_POST.strip():
+            s_rules += f"\n{DEF_CUSTOM_PROMPT_POST.strip()}\n"
 
         s_prompt = (
             "# 【功能】\n"
