@@ -1384,7 +1384,8 @@ class BnSquare():
                     f'Image element is not found, '
                     f'waited {i}/{n_max_wait} seconds ...')
                 tab.wait(1)
-        return False
+        # return False
+        return True
 
     def bn_long_post(self, lst_text, s_title=None, upload_image=False):
         tab = self.browser.latest_tab
